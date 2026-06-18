@@ -1,0 +1,12 @@
+defaults:
+  general: "qwen3:14b"
+  fast: "qwen3:8b"
+  coding: "qwen3-coder:30b"
+  embeddings: "nomic-embed-text"
+
+hosts:
+  evo_x2:
+    ollama_url: "http://localhost:11434"
+    open_webui_url: "http://localhost:3000"
+    litellm_url: "http://localhost:4000"
+

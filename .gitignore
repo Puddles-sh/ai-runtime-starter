@@ -1,0 +1,67 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+*.p12
+*.crt
+*.cer
+*.jks
+secrets/
+tokens/
+credentials/
+private/
+
+# Runtime data
+data/
+logs/
+audit/
+rollback/
+cache/
+tmp/
+*.sqlite
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
+
+# Model and vector data
+models/
+ollama/
+vector-db/
+qdrant_storage/
+chroma/
+faiss/
+*.gguf
+*.safetensors
+*.bin
+
+# Generated outputs
+outputs/
+reports/
+
+# Docker/runtime generated files
+docker-compose.override.yml
+*.pid
+
