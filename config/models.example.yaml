@@ -1,12 +1,43 @@
+# EVO-X2: GMKtec Mini AI — AMD AI Max+ 395, 128GB unified memory
+# GPU can address the full 128GB pool. No discrete VRAM ceiling.
+# loaded_vram_gib in benchmark reports reflects unified memory usage.
+
 defaults:
+  # Good balance of quality and speed for general chat/tasks
   general: "qwen3:14b"
+  # Fastest response, good enough for short queries and agent loops
   fast: "qwen3:8b"
-  coding: "qwen3-coder:30b"
+  # Best coding/scripting output the hardware can sustain at speed
+  coding: "qwen3-coder:32b"
+  # Full reasoning capability — fits comfortably, slower but thorough
+  reasoning: "deepseek-r1:32b"
+  # 70B tier — high quality, slower; use for complex runbook/doc generation
+  large: "qwen3:30b"
   embeddings: "nomic-embed-text"
 
-hosts:
-  evo_x2:
-    ollama_url: "http://localhost:11434"
-    open_webui_url: "http://localhost:3000"
-    litellm_url: "http://localhost:4000"
+# Candidate models to benchmark — sorted roughly by size
+# Run: python3 scripts/ollama_model_benchmark.py --prompt-set all <models...>
+benchmark_candidates:
+  chat:
+    - "qwen3:8b"
+    - "qwen3:14b"
+    - "qwen3:30b"
+    - "llama3.1:8b"
+    - "mistral:7b"
+  coding:
+    - "qwen3-coder:8b"
+    - "qwen3-coder:32b"
+    - "deepseek-coder-v2:16b"
+  reasoning:
+    - "deepseek-r1:14b"
+    - "deepseek-r1:32b"
+    - "qwen3:30b"
+
+policies:
+  local_only_projects:
+    - therapy
+    - edc-chaos
+  cloud_allowed_projects:
+    - work
+    - learning
 
