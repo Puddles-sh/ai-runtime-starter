@@ -384,6 +384,92 @@ Results saved to `AI/projects/homelab/outputs/model-benchmarks/`.
 
 ---
 
+## Step 12 — Claude Code (Remote Dev) and Claude API Access
+
+### Claude API Key
+
+The Opus scorer and any agent that calls Claude needs the API key available as an
+environment variable. Add it to your shell profile so it persists across sessions:
+
+```bash
+echo 'export ANTHROPIC_API_KEY="sk-ant-..."' >> ~/.bashrc
+source ~/.bashrc
+```
+
+Verify:
+```bash
+echo $ANTHROPIC_API_KEY  # should print the key
+```
+
+> Never commit this value to git. The `.gitignore` already excludes `.env` files —
+> if you prefer storing it there, use a `.env` file and load it via `source .env`.
+
+### Claude Code Installation
+
+Claude Code lets you SSH into the EVO and run an AI-assisted dev session remotely
+from your MacBook terminal — same experience as local, running on EVO hardware.
+
+Install Node.js first (Claude Code requires it):
+```bash
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt install -y nodejs
+node --version  # confirm 22.x
+```
+
+Install Claude Code globally:
+```bash
+npm install -g @anthropic-ai/claude-code
+```
+
+Confirm it's working:
+```bash
+claude --version
+```
+
+### Remote Dev Workflow
+
+From your MacBook, SSH into the EVO and launch Claude Code:
+
+```bash
+ssh charles@evo-x2.local
+cd /opt/ai-runtime
+claude
+```
+
+Claude Code will use the `ANTHROPIC_API_KEY` from the EVO's environment. All file
+access, bash commands, and context are on the EVO — your MacBook is just the terminal.
+
+### SSH Key for MacBook → EVO
+
+Add your MacBook's public key to the EVO so you can SSH without a password:
+
+On MacBook:
+```bash
+ssh-copy-id charles@evo-x2.local
+```
+
+Or manually — on MacBook, copy the public key:
+```bash
+cat ~/.ssh/id_ed25519.pub
+```
+
+On EVO, append it:
+```bash
+mkdir -p ~/.ssh
+echo "ssh-ed25519 AAAA..." >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+```
+
+Test passwordless login:
+```bash
+ssh charles@evo-x2.local  # should connect without password prompt
+```
+
+> MCP server integration (exposing EVO tools to Claude Code on MacBook) is a
+> future phase — see build-roadmap.md Phase 6+.
+
+---
+
 ## Known Issues
 
 | Issue | Cause | Fix |
@@ -409,4 +495,8 @@ Results saved to `AI/projects/homelab/outputs/model-benchmarks/`.
 - [ ] All models pulled and listed in `ollama list`
 - [ ] Benchmark run completed, scored, results saved
 - [ ] Docker running and verified
+- [ ] `ANTHROPIC_API_KEY` set in `~/.bashrc`, persists across sessions
+- [ ] Claude Code installed, `claude --version` responds
+- [ ] SSH passwordless login from MacBook confirmed
+- [ ] Claude Code session launched remotely over SSH from MacBook
 - [ ] Notes saved under this homelab project
