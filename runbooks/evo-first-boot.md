@@ -428,16 +428,21 @@ claude --version
 
 ### Remote Dev Workflow
 
-From your MacBook, SSH into the EVO and launch Claude Code:
+Claude Code has a built-in remote control feature — no manual SSH session required.
 
+**Option 1 — Claude Code UI (recommended):**
+In the Claude Code sidebar, click the host selector → **Set up Remote Control** →
+**Add SSH host** → enter `charles@evo-x2.local`. Claude Code handles the connection
+natively. All file access and commands run on the EVO, MacBook is just the UI.
+
+**Option 2 — Terminal:**
 ```bash
-ssh charles@evo-x2.local
-cd /opt/ai-runtime
-claude
+claude rc
 ```
+Follow the prompts to register the EVO as a remote host.
 
 Claude Code will use the `ANTHROPIC_API_KEY` from the EVO's environment. All file
-access, bash commands, and context are on the EVO — your MacBook is just the terminal.
+access, bash commands, and context are on the EVO — your MacBook is just the interface.
 
 ### SSH Key for MacBook → EVO
 
