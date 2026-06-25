@@ -445,11 +445,13 @@ class StreamingWriter:
         self.csv_path = output_dir / f"ollama-benchmark-{timestamp}.csv"
         self.responses_path = output_dir / f"ollama-responses-{timestamp}.md"
         self.concurrent_path = output_dir / f"ollama-concurrent-{timestamp}.jsonl"
+        self.raw_path = output_dir / f"ollama-raw-{timestamp}.jsonl"
 
         self._jsonl = self.jsonl_path.open("a", encoding="utf-8")
         self._responses = self.responses_path.open("a", encoding="utf-8")
         self._concurrent = self.concurrent_path.open("a", encoding="utf-8")
         self._csv_handle = self.csv_path.open("a", encoding="utf-8", newline="")
+        self._raw_jsonl = self.raw_path.open("a", encoding="utf-8")
         self._csv_writer: csv.DictWriter | None = None
         self._rows_written = 0
 
@@ -483,6 +485,19 @@ class StreamingWriter:
         # Write metrics row to JSONL
         self._jsonl.write(json.dumps(row) + "\n")
         self._jsonl.flush()
+
+        # Write full entry to raw JSONL — this is what opus_scorer.py reads
+        raw_entry = {
+            "model": model,
+            "prompt": prompt_label,
+            "prompt_text": prompt_text,
+            "phase": phase,
+            "run": run,
+            "thinking": thinking,
+            "response": response,
+        }
+        self._raw_jsonl.write(json.dumps(raw_entry) + "\n")
+        self._raw_jsonl.flush()
 
         # Write metrics row to CSV
         if self._csv_writer is None:
@@ -534,6 +549,7 @@ class StreamingWriter:
         self._responses.close()
         self._concurrent.close()
         self._csv_handle.close()
+        self._raw_jsonl.close()
 
     def finalize(self, runs: int) -> None:
         """Read saved JSONL, compute averages, write final markdown summary."""

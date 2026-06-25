@@ -289,11 +289,26 @@ def main() -> int:
         print(f"ERROR: file not found: {args.input}", file=sys.stderr)
         return 1
 
-    data = json.loads(args.input.read_text(encoding="utf-8"))
-    raw_entries = data.get("raw", [])
+    # Accept both JSONL (new streaming format) and JSON (old in-memory format).
+    if args.input.suffix == ".jsonl":
+        raw_entries = []
+        with args.input.open(encoding="utf-8") as fh:
+            for lineno, line in enumerate(fh, 1):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    raw_entries.append(json.loads(line))
+                except json.JSONDecodeError as exc:
+                    print(f"WARNING: skipping malformed line {lineno}: {exc}", file=sys.stderr)
+    else:
+        data = json.loads(args.input.read_text(encoding="utf-8"))
+        raw_entries = data.get("raw", [])
 
     if not raw_entries:
-        print("ERROR: no 'raw' entries in input file. Re-run benchmark to generate raw response data.", file=sys.stderr)
+        print("ERROR: no scorable entries found in input file.", file=sys.stderr)
+        print("  For JSONL: use ollama-raw-*.jsonl (produced by the updated benchmark script).", file=sys.stderr)
+        print("  For JSON:  file must contain a 'raw' key with response data.", file=sys.stderr)
         return 1
 
     print(f"Input: {args.input}")
