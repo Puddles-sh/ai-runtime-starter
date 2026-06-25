@@ -410,7 +410,7 @@ Ask it something simple. Confirm response is coherent and GPU is being used:
 
 ```bash
 # In a second terminal while model is running
-rocm-smi  # should show GPU memory in use
+rocm-smi  # GPU% should show >0% during inference; VRAM% will always show 0% on unified memory — this is expected
 ```
 
 **Expected performance baseline (validated on same hardware):**
