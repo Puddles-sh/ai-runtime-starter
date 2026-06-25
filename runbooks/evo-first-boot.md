@@ -501,16 +501,61 @@ claude --version
 claude  # log in with Anthropic account on first launch
 ```
 
-### SSH Key for MacBook → EVO
+### SSH Passwordless Login — MacBook → EVO
 
-On MacBook:
+**On the MacBook:**
+
+Check if an SSH key already exists:
+```bash
+ls ~/.ssh/id_*.pub
+```
+
+If none exists, generate one:
+```bash
+ssh-keygen -t ed25519 -C "mac-to-evo"
+# Accept the default path (~/.ssh/id_ed25519), passphrase optional
+```
+
+Copy the public key to the EVO (you'll be prompted for the EVO password one last time):
 ```bash
 ssh-copy-id <user>@evo-x2.local
 ```
 
-Test:
+If mDNS isn't resolving yet, use the IP:
 ```bash
-ssh <user>@evo-x2.local  # should connect without password prompt
+ssh-copy-id <user>@<evo-ip>
+```
+
+**Set up SSH config for convenience:**
+
+```bash
+nano ~/.ssh/config
+```
+
+Add:
+```
+Host evo
+    HostName evo-x2.local
+    User <user>
+    IdentityFile ~/.ssh/id_ed25519
+    ServerAliveInterval 60
+    ServerAliveCountMax 3
+```
+
+Now you can connect with just:
+```bash
+ssh evo
+```
+
+**Test:**
+```bash
+ssh evo  # should connect without password prompt
+ssh evo "ollama list"  # confirm remote commands work
+```
+
+**On the EVO — verify the key landed:**
+```bash
+cat ~/.ssh/authorized_keys  # should show your Mac's public key
 ```
 
 ---
@@ -533,6 +578,18 @@ ssh <user>@evo-x2.local  # should connect without password prompt
 | `docker-compose-plugin` not found | Not available on Ubuntu 24.04 | Use `docker-compose` (standalone) |
 | Model outputs raw role tokens (`<\|start_of_role\|>`) | GGUF missing embedded chat template | Create a Modelfile with the correct TEMPLATE for the model |
 | Wi-Fi not working | Ubuntu 25.x kernel issue | Use Ubuntu 24.04 LTS only |
+
+---
+
+## Notes
+
+- **mDNS hostname (`evo-x2.local`)** resolves automatically on the local network via Avahi (installed by default on Ubuntu). If it stops resolving, check `sudo systemctl status avahi-daemon`.
+- **Ollama listens on `127.0.0.1:11434` by default** — it is not reachable from the MacBook without adding `Environment="OLLAMA_HOST=0.0.0.0:11434"` to the service override. Add this if you want to hit the API from the Mac without SSH tunneling.
+- **Scoring env (`scoring`)** is a Python venv at `~/envs/scoring` with `anthropic` installed. Activate with `source ~/envs/scoring/bin/activate`. Keep `ANTHROPIC_API_KEY` in `~/.bashrc` so it's available inside the venv.
+- **tmux** is the recommended way to run overnight benchmarks — detach with `Ctrl-B D`, reattach with `tmux attach`. Benchmark writes stream to disk after every prompt so a disconnect loses nothing.
+- **Model storage** defaults to `~/.ollama/models`. With 2TB NVMe this is fine — no need to relocate.
+- **Open WebUI** auto-updates when you restart the container with `docker pull` — do this deliberately, not on a schedule, since updates occasionally break things.
+- **Benchmark results** write to `~/benchmark-results/` by default. Copy to Mac via `scp` or mount via SSHFS if needed.
 
 ---
 
