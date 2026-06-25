@@ -569,6 +569,8 @@ ssh charles@evo-x2.local  # should connect without password prompt
 | GPU only sees small memory slice | GRUB gttsize not applied | Verify `/etc/default/grub` and rerun `update-grub` |
 | Slow inference despite GPU | Flash attention disabled | Add `-fa 1` flag if using llama.cpp directly |
 | Wi-Fi not working | Ubuntu 25.x kernel issue | Use Ubuntu 24.04 LTS only |
+| ROCm unspecified launch failure during long generation | XNACK disabled — GPU crashes on page fault instead of recovering | Add `Environment="HSA_XNACK=1"` to ollama systemd override and restart |
+| `amdxdna` SVA bind failures flooding kernel log, system unstable at idle | NPU driver conflicts with amdgpu for SVM memory | `echo "blacklist amdxdna" \| sudo tee /etc/modprobe.d/blacklist-amdxdna.conf && sudo update-initramfs -u && sudo reboot` |
 
 ---
 
@@ -595,6 +597,7 @@ Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/
 Environment="LD_LIBRARY_PATH=/opt/rocm/lib"
 Environment="HSA_OVERRIDE_GFX_VERSION=11.5.1"
 Environment="OLLAMA_MAX_LOADED_MODELS=1"
+Environment="HSA_XNACK=1"
 ExecStartPre=/bin/bash -c 'until [ -c /dev/dri/renderD128 ]; do sleep 1; done'
 ```
 
