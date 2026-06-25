@@ -128,7 +128,7 @@ def score_entry(
 
     scored = client.messages.create(
         model="claude-opus-4-8",
-        max_tokens=1024,
+        max_tokens=4096,
         thinking={"type": "adaptive"},
         system=SCORING_SYSTEM,
         messages=[{"role": "user", "content": user_msg}],
