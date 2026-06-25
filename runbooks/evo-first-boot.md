@@ -408,6 +408,9 @@ ollama pull qwen2.5-coder:32b
 
 # Qwen3.6 MoE — 36B total, ~3B active, vision capable, 262K context, ~50 t/s
 ollama pull qwen3.6:35b
+
+# Gemma4 MoE — 26B total, 4B active, 256K context, ~50 t/s, best Graph API scores in benchmark
+ollama pull gemma4:26b
 ```
 
 > **Note:** `llama3.2-vision:11b` uses the `mllama` architecture which ROCm does not

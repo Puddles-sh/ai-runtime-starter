@@ -1,6 +1,6 @@
 # Model Benchmark Findings
 
-Last updated: 2026-06-25 (Round 2 results added)
+Last updated: 2026-06-25 (Round 3 results added)
 Hardware: GMKtec EVO-X2 (AMD AI Max+ 395, 128 GB unified memory)
 Scorer: claude-opus-4-8 with adaptive thinking
 
@@ -81,14 +81,39 @@ Three tasks scored ≤ 5/10 across all models. Root cause is factual grounding, 
 
 ---
 
+## Round 3 — gemma4:26b Shootout
+
+**Models:** gemma4:26b  
+**Prompts:** ga-deprecated-module, ga-error-handling, ps-graph-stale-users  
+**Script:** `scripts/graph_api_shootout.py`  
+**Rationale:** MoE architecture (4B active), 256K context, 50 t/s — pulled as a wildcard after Round 2 confirmed grounding is the problem, not capacity.
+
+### Round 3 Results
+
+| Task | Cold | Warm | Notes |
+|---|:---:|:---:|---|
+| ga-deprecated-module | 7 | 8 | Significant jump from previous best of 4 |
+| ga-error-handling | 0 | 5 | Still the hardest task — hallucination risk remains high |
+| ps-graph-stale-users | 6 | 9 | Near production-ready on warm run |
+
+**Verdict:** gemma4:26b is the new leader on Graph API tasks without RAG. The warm run on ps-graph-stale-users scoring 9 with hallucination_risk=10 suggests it actually knows the correct property names in some inference paths — just not consistently. RAG should lock that in.
+
+**ga-error-handling remains the outlier** — the cold=0 indicates it's still fabricating cmdlets on first load. This task needs RAG more than any other.
+
+**Key differentiator going forward:** both qwen3.6:35b and gemma4:26b run at ~50 t/s. The RAG round will come down to instruction following under context load — which model stays accurate when the prompt is 10K+ tokens deep with retrieved API reference material. gemma4's 256K window vs qwen3.6's 262K is a wash; behavior under load is what matters.
+
+---
+
 ## Decision Tree — Resolved
 
 ```
 Round 2 scores > 7/10?
 ├── YES → Build task-specific system prompts (N/A — no model cleared bar)
-└── NO  → Build Scout + Indexer agents to crawl MS Graph PowerShell docs  ← WE ARE HERE
+└── NO  → Round 3: gemma4:26b shootout → new leader confirmed
+          → Build Scout + Indexer agents to crawl MS Graph PowerShell docs  ← WE ARE HERE
           → RAG retrieval layer injects correct API surface before generation
-          → Re-run: qwen3.6:35b + RAG vs gemma4:26b + RAG
+          → Re-run: gemma4:26b + RAG vs qwen3.6:35b + RAG
+          → Differentiator: instruction following under heavy context load
           → If still failing → model problem, not grounding problem
 ```
 
@@ -97,7 +122,9 @@ Round 2 scores > 7/10?
 ## Next Steps
 
 - [x] Score Round 2 results with `opus_scorer.py`
+- [x] Score Round 3 results (gemma4:26b)
 - [ ] Build Scout agent (MS Graph docs crawler)
 - [ ] Build Indexer agent (chunk, embed, store)
-- [ ] Re-run failing tasks: qwen3.6:35b + RAG vs gemma4:26b + RAG
+- [ ] Re-run failing tasks: gemma4:26b + RAG vs qwen3.6:35b + RAG
+- [ ] Benchmark instruction following under heavy context load (minimal vs full retrieval chunks)
 - [ ] Lock routing table and build task-specific system prompts
