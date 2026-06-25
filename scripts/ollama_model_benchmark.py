@@ -5,6 +5,9 @@ Intended to run on the EVO or any machine that can reach the Ollama API.
 Writes JSON, CSV, Markdown summary, and a response review file so model outputs
 can be read and scored manually after a run.
 
+Results are written to disk after each prompt — safe to Ctrl-C and resume from
+the saved JSONL file.
+
 Overnight run example:
   python3 ollama_model_benchmark.py \\
     qwen3:8b qwen3:14b deepseek-r1:14b qwen2.5-coder:32b qwen3.6:35b \\
@@ -168,8 +171,6 @@ PROMPT_SETS: dict[str, list[tuple[str, str]]] = {
 }
 
 # Context size variants — same task at short / medium / long context length.
-# Tests how models handle growing input size, relevant for agent workflows
-# that pass scripts, logs, or documents as context.
 CONTEXT_PROMPTS: dict[str, list[tuple[str, str]]] = {
     "short": [
         (
@@ -243,6 +244,19 @@ CONTEXT_PROMPTS: dict[str, list[tuple[str, str]]] = {
     ],
 }
 
+GRAPH_ACCURACY_CHECKLIST = [
+    "**Graph Accuracy Checklist** (for ga-* prompts):",
+    "- AzureAD or MSOnline module used? → automatic Hallucination: FAIL",
+    "- Correct cmdlet names? (Get-MgUser, New-MgGroupMember, Get-MgDeviceManagementManagedDevice)",
+    "- Correct parameter names? (-GroupId and -DirectoryObjectId on New-MgGroupMember, NOT -MemberId or -UserId)",
+    "- Pagination handled? (-All flag or manual @odata.nextLink loop)",
+    "- Graph permission scope declared and correct?",
+    "- Error handling present and specific? (404 user-not-found vs 403 permission-denied distinguished)",
+    "- No global variables for tokens?",
+    "- Write-Verbose not Write-Host for progress output?",
+    "",
+]
+
 
 def ns_to_seconds(value: int | float | None) -> float:
     if not value:
@@ -279,7 +293,6 @@ def stop_model(base_url: str, model: str) -> None:
     except SystemExit:
         pass
     subprocess.run(["ollama", "stop", model], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    # Verify the model actually unloaded — a silent failure here turns a cold run into a warm run.
     time.sleep(2)
     try:
         ps = api_json(base_url, "/api/ps")
@@ -287,7 +300,7 @@ def stop_model(base_url: str, model: str) -> None:
         if model in loaded:
             print(f"  WARNING: {model} still appears loaded after stop — cold run result may be inaccurate")
     except SystemExit:
-        pass  # If /api/ps fails, proceed anyway — don't block the benchmark
+        pass
 
 
 def generate_once(base_url: str, model: str, prompt: str, keep_alive: str, num_ctx: int = 32768) -> dict[str, Any]:
@@ -349,7 +362,6 @@ def flatten_result(
 
 
 def compute_averages(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Group rows by model/prompt/phase/thinking and emit averaged summary rows."""
     from collections import defaultdict
 
     groups: dict[tuple, list[dict[str, Any]]] = defaultdict(list)
@@ -394,7 +406,6 @@ def run_concurrent_test(
     keep_alive: str,
     n: int,
 ) -> dict[str, Any]:
-    """Fire n simultaneous requests and return timing results."""
     print(f"  Concurrent test: {n} simultaneous requests...")
     started = time.perf_counter()
 
@@ -422,147 +433,83 @@ def run_concurrent_test(
     }
 
 
-def write_reports(
-    output_dir: Path,
-    rows: list[dict[str, Any]],
-    raw: list[dict[str, Any]],
-    avg_rows: list[dict[str, Any]],
-    concurrent_results: list[dict[str, Any]],
-) -> None:
-    output_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    json_path = output_dir / f"ollama-benchmark-{timestamp}.json"
-    csv_path = output_dir / f"ollama-benchmark-{timestamp}.csv"
-    md_path = output_dir / f"ollama-benchmark-{timestamp}.md"
-    responses_path = output_dir / f"ollama-responses-{timestamp}.md"
+class StreamingWriter:
+    """Writes benchmark results to disk after each prompt — no in-memory accumulation."""
 
-    json_path.write_text(
-        json.dumps({"results": rows, "averages": avg_rows, "concurrent": concurrent_results, "raw": raw}, indent=2),
-        encoding="utf-8",
-    )
+    def __init__(self, output_dir: Path, timestamp: str) -> None:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        self.output_dir = output_dir
+        self.timestamp = timestamp
 
-    all_rows = rows + avg_rows
-    fieldnames = list(dict.fromkeys(k for r in all_rows for k in r.keys()))
-    with csv_path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames, extrasaction="ignore")
-        writer.writeheader()
-        writer.writerows(all_rows)
+        self.jsonl_path = output_dir / f"ollama-benchmark-{timestamp}.jsonl"
+        self.csv_path = output_dir / f"ollama-benchmark-{timestamp}.csv"
+        self.responses_path = output_dir / f"ollama-responses-{timestamp}.md"
+        self.concurrent_path = output_dir / f"ollama-concurrent-{timestamp}.jsonl"
 
-    # --- Markdown summary ---
-    lines = [
-        "# Ollama Model Benchmark",
-        "",
-        f"Generated: {datetime.now().isoformat(timespec='seconds')}",
-        "",
-        "## Per-Run Results",
-        "",
-        "| Model | Prompt | Phase | Run | Think | Load sec | Wall sec | Tok/sec | Prompt tokens | Output tokens | Loaded GiB | VRAM GiB |",
-        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
-    ]
-    for row in rows:
-        lines.append(
-            f"| {row['model']} | {row.get('prompt', 'default')} | {row['phase']} | {row['run']} | "
-            f"{'Y' if row.get('thinking') else 'N'} | "
-            f"{row['load_seconds']} | {row['wall_seconds']} | {row['tokens_per_second']} | "
-            f"{row['prompt_eval_count']} | {row['eval_count']} | "
-            f"{row['loaded_size_gib']} | {row['loaded_vram_gib']} |"
+        self._jsonl = self.jsonl_path.open("a", encoding="utf-8")
+        self._responses = self.responses_path.open("a", encoding="utf-8")
+        self._concurrent = self.concurrent_path.open("a", encoding="utf-8")
+        self._csv_handle = self.csv_path.open("a", encoding="utf-8", newline="")
+        self._csv_writer: csv.DictWriter | None = None
+        self._rows_written = 0
+
+        self._responses.write(
+            "# Ollama Model Responses\n\n"
+            f"Generated: {datetime.now().isoformat(timespec='seconds')}\n\n"
+            "Review each response below and score manually using the rubric:\n"
+            "| Dimension | Score 1-10 |\n"
+            "|---|---|\n"
+            "| Accuracy — facts, cmdlets, syntax correct? | |\n"
+            "| Completeness — fully answers the request? | |\n"
+            "| Format — clean and usable without editing? | |\n"
+            "| Hallucination risk — invented cmdlets or endpoints? | |\n"
+            "| Consistency — similar quality on repeat runs? | |\n\n"
+            "---\n\n"
         )
+        self._responses.flush()
 
-    if avg_rows:
-        thinking_rows = [r for r in avg_rows if r.get("thinking")]
-        standard_rows = [r for r in avg_rows if not r.get("thinking")]
+    def write_result(
+        self,
+        row: dict[str, Any],
+        model: str,
+        prompt_label: str,
+        prompt_text: str,
+        phase: str,
+        run: int,
+        thinking: bool,
+        response: dict[str, Any],
+        runtime: dict[str, Any],
+    ) -> None:
+        # Write metrics row to JSONL
+        self._jsonl.write(json.dumps(row) + "\n")
+        self._jsonl.flush()
 
-        avg_header = [
-            "| Model | Prompt | Phase | Avg Tok/sec | ±Stddev | Avg Wall sec | Avg Output tokens | Loaded GiB |",
-            "|---|---|---:|---:|---:|---:|---:|---:|",
-        ]
+        # Write metrics row to CSV
+        if self._csv_writer is None:
+            self._csv_writer = csv.DictWriter(self._csv_handle, fieldnames=list(row.keys()), extrasaction="ignore")
+            self._csv_writer.writeheader()
+        self._csv_writer.writerow(row)
+        self._csv_handle.flush()
 
-        def avg_row_line(row: dict[str, Any]) -> str:
-            return (
-                f"| {row['model']} | {row['prompt']} | {row['phase']} | "
-                f"{row['tokens_per_second']} | {row.get('tokens_per_second_stddev', '-')} | "
-                f"{row['wall_seconds']} | {row.get('eval_count', '-')} | {row['loaded_size_gib']} |"
-            )
+        # Write full response to responses file immediately
+        resp_text = response.get("response", "").strip()
+        thinking_flag = "YES" if thinking else "NO"
+        eval_count = int(response.get("eval_count") or 0)
+        eval_seconds = ns_to_seconds(response.get("eval_duration"))
+        tok_per_sec = eval_count / eval_seconds if eval_seconds else 0.0
+        prompt_tokens = int(response.get("prompt_eval_count") or 0)
+        wall = float(response.get("wall_seconds") or 0.0)
 
-        if standard_rows:
-            lines += ["", "## Averaged Results — Standard Mode", ""] + avg_header
-            for row in standard_rows:
-                lines.append(avg_row_line(row))
-
-        if thinking_rows:
-            lines += ["", "## Averaged Results — Thinking Mode", ""] + avg_header
-            for row in thinking_rows:
-                lines.append(avg_row_line(row))
-
-    if concurrent_results:
-        lines += [
+        lines = [
+            f"## {model} | {prompt_label} | {phase} | run {run} | thinking: {thinking_flag}",
             "",
-            "## Concurrent Request Results",
-            "",
-            "| Model | Prompt | Concurrent N | Total Wall sec | Avg Tok/sec | Min Tok/sec | Max Tok/sec |",
-            "|---|---|---:|---:|---:|---:|---:|",
-        ]
-        for r in concurrent_results:
-            lines.append(
-                f"| {r['model']} | {r['prompt']} | {r['concurrent_n']} | "
-                f"{r['total_wall_seconds']} | {r['avg_tok_per_sec']} | "
-                f"{r['min_tok_per_sec']} | {r['max_tok_per_sec']} |"
-            )
-
-    lines.extend(["", f"JSON: `{json_path.name}`", f"CSV: `{csv_path.name}`", f"Responses: `{responses_path.name}`", ""])
-    md_path.write_text("\n".join(lines), encoding="utf-8")
-
-    # --- Response review file ---
-    resp_lines = [
-        "# Ollama Model Responses",
-        "",
-        f"Generated: {datetime.now().isoformat(timespec='seconds')}",
-        "",
-        "Review each response below and score manually using the rubric:",
-        "| Dimension | Score 1-10 |",
-        "|---|---|",
-        "| Accuracy — facts, cmdlets, syntax correct? | |",
-        "| Completeness — fully answers the request? | |",
-        "| Format — clean and usable without editing? | |",
-        "| Hallucination risk — invented cmdlets or endpoints? | |",
-        "| Consistency — similar quality on repeat runs? | |",
-        "",
-        "---",
-        "",
-    ]
-    GRAPH_ACCURACY_CHECKLIST = [
-        "**Graph Accuracy Checklist** (for ga-* prompts):",
-        "- AzureAD or MSOnline module used? → automatic Hallucination: FAIL",
-        "- Correct cmdlet names? (Get-MgUser, New-MgGroupMember, Get-MgDeviceManagementManagedDevice)",
-        "- Correct parameter names? (-GroupId and -DirectoryObjectId on New-MgGroupMember, NOT -MemberId or -UserId)",
-        "- Pagination handled? (-All flag or manual @odata.nextLink loop)",
-        "- Graph permission scope declared and correct?",
-        "- Error handling present and specific? (404 user-not-found vs 403 permission-denied distinguished)",
-        "- No global variables for tokens?",
-        "- Write-Verbose not Write-Host for progress output?",
-        "",
-    ]
-
-    for entry in raw:
-        resp_text = entry["response"].get("response", "").strip()
-        thinking_flag = "YES" if entry.get("thinking") else "NO"
-        prompt_label = entry.get("prompt", "")
-        tok_per_sec = entry['response'].get('eval_count', 0) / max(ns_to_seconds(entry['response'].get('eval_duration')), 0.001)
-        output_tokens = entry['response'].get('eval_count', 0)
-        prompt_tokens = entry['response'].get('prompt_eval_count', 0)
-
-        entry_lines = [
-            f"## {entry['model']} | {prompt_label} | {entry['phase']} | run {entry.get('run', 1)} | thinking: {thinking_flag}",
-            "",
-            f"**Tok/sec:** {tok_per_sec:.1f} &nbsp; **Wall sec:** {entry['response'].get('wall_seconds', 0):.2f} &nbsp; "
-            f"**Prompt tokens:** {prompt_tokens} &nbsp; **Output tokens:** {output_tokens}",
+            f"**Tok/sec:** {tok_per_sec:.1f} &nbsp; **Wall sec:** {wall:.2f} &nbsp; "
+            f"**Prompt tokens:** {prompt_tokens} &nbsp; **Output tokens:** {eval_count}",
             "",
         ]
-
         if prompt_label.startswith("ga-"):
-            entry_lines += GRAPH_ACCURACY_CHECKLIST
-
-        entry_lines += [
+            lines += GRAPH_ACCURACY_CHECKLIST
+        lines += [
             "**Response:**",
             "",
             resp_text,
@@ -572,13 +519,116 @@ def write_reports(
             "---",
             "",
         ]
-        resp_lines += entry_lines
-    responses_path.write_text("\n".join(resp_lines), encoding="utf-8")
+        self._responses.write("\n".join(lines))
+        self._responses.flush()
 
-    print(f"Wrote: {md_path}")
-    print(f"Wrote: {csv_path}")
-    print(f"Wrote: {json_path}")
-    print(f"Wrote: {responses_path}")
+        self._rows_written += 1
+        print(f"  -> {phase} | {row['tokens_per_second']} t/s | {row['wall_seconds']}s wall | saved ({self._rows_written} rows total)")
+
+    def write_concurrent(self, result: dict[str, Any]) -> None:
+        self._concurrent.write(json.dumps(result) + "\n")
+        self._concurrent.flush()
+
+    def close(self) -> None:
+        self._jsonl.close()
+        self._responses.close()
+        self._concurrent.close()
+        self._csv_handle.close()
+
+    def finalize(self, runs: int) -> None:
+        """Read saved JSONL, compute averages, write final markdown summary."""
+        rows = []
+        with self.jsonl_path.open(encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    rows.append(json.loads(line))
+
+        concurrent_results = []
+        if self.concurrent_path.exists():
+            with self.concurrent_path.open(encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        concurrent_results.append(json.loads(line))
+
+        avg_rows = compute_averages(rows) if runs > 1 else []
+
+        md_path = self.output_dir / f"ollama-benchmark-{self.timestamp}.md"
+        lines = [
+            "# Ollama Model Benchmark",
+            "",
+            f"Generated: {datetime.now().isoformat(timespec='seconds')}",
+            "",
+            "## Per-Run Results",
+            "",
+            "| Model | Prompt | Phase | Run | Think | Load sec | Wall sec | Tok/sec | Prompt tokens | Output tokens | Loaded GiB | VRAM GiB |",
+            "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        ]
+        for row in rows:
+            lines.append(
+                f"| {row['model']} | {row.get('prompt', 'default')} | {row['phase']} | {row['run']} | "
+                f"{'Y' if row.get('thinking') else 'N'} | "
+                f"{row['load_seconds']} | {row['wall_seconds']} | {row['tokens_per_second']} | "
+                f"{row['prompt_eval_count']} | {row['eval_count']} | "
+                f"{row['loaded_size_gib']} | {row['loaded_vram_gib']} |"
+            )
+
+        if avg_rows:
+            thinking_rows = [r for r in avg_rows if r.get("thinking")]
+            standard_rows = [r for r in avg_rows if not r.get("thinking")]
+            avg_header = [
+                "| Model | Prompt | Phase | Avg Tok/sec | ±Stddev | Avg Wall sec | Avg Output tokens | Loaded GiB |",
+                "|---|---|---:|---:|---:|---:|---:|---:|",
+            ]
+
+            def avg_row_line(row: dict[str, Any]) -> str:
+                return (
+                    f"| {row['model']} | {row['prompt']} | {row['phase']} | "
+                    f"{row['tokens_per_second']} | {row.get('tokens_per_second_stddev', '-')} | "
+                    f"{row['wall_seconds']} | {row.get('eval_count', '-')} | {row['loaded_size_gib']} |"
+                )
+
+            if standard_rows:
+                lines += ["", "## Averaged Results — Standard Mode", ""] + avg_header
+                for row in standard_rows:
+                    lines.append(avg_row_line(row))
+            if thinking_rows:
+                lines += ["", "## Averaged Results — Thinking Mode", ""] + avg_header
+                for row in thinking_rows:
+                    lines.append(avg_row_line(row))
+
+        if concurrent_results:
+            lines += [
+                "",
+                "## Concurrent Request Results",
+                "",
+                "| Model | Prompt | Concurrent N | Total Wall sec | Avg Tok/sec | Min Tok/sec | Max Tok/sec |",
+                "|---|---|---:|---:|---:|---:|---:|",
+            ]
+            for r in concurrent_results:
+                lines.append(
+                    f"| {r['model']} | {r['prompt']} | {r['concurrent_n']} | "
+                    f"{r['total_wall_seconds']} | {r['avg_tok_per_sec']} | "
+                    f"{r['min_tok_per_sec']} | {r['max_tok_per_sec']} |"
+                )
+
+        lines.extend([
+            "",
+            f"JSONL: `{self.jsonl_path.name}`",
+            f"CSV: `{self.csv_path.name}`",
+            f"Responses: `{self.responses_path.name}`",
+            "",
+        ])
+        md_path.write_text("\n".join(lines), encoding="utf-8")
+
+        print(f"\nWrote: {md_path}")
+        print(f"Wrote: {self.csv_path}")
+        print(f"Wrote: {self.jsonl_path}")
+        print(f"Wrote: {self.responses_path}")
+        print(f"\nTotal rows: {len(rows)}")
+        if avg_rows:
+            print(f"Averaged summary rows: {len(avg_rows)}")
 
 
 def build_prompt_list(args: argparse.Namespace) -> list[tuple[str, str]]:
@@ -651,58 +701,63 @@ Overnight run example:
     parser.add_argument("--keep-alive", default="5m", help="How long Ollama keeps each model loaded")
     parser.add_argument(
         "--output-dir", type=Path,
-        default=Path.home() / "Library/Mobile Documents/com~apple~CloudDocs/AI/projects/homelab/outputs/model-benchmarks",
-        help="Directory for output reports",
+        default=Path.home() / "benchmark-results",
+        help="Directory for output reports (default: ~/benchmark-results)",
     )
     parser.add_argument("--skip-cold", action="store_true", help="Skip cold-start runs")
     parser.add_argument("--skip-warm", action="store_true", help="Skip warm runs")
     args = parser.parse_args()
 
     prompts = build_prompt_list(args)
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    writer = StreamingWriter(args.output_dir, timestamp)
 
-    rows: list[dict[str, Any]] = []
-    raw: list[dict[str, Any]] = []
-    concurrent_results: list[dict[str, Any]] = []
+    print(f"Output dir: {args.output_dir}")
+    print(f"Models: {args.models}")
+    print(f"Prompts: {len(prompts)} | Runs: {args.runs} | Thinking: {args.thinking}")
+    print(f"Results streaming to: {writer.jsonl_path.name}\n")
 
-    for model in args.models:
-        for label, base_prompt in prompts:
-            prompt = f"/think\n{base_prompt}" if args.thinking else base_prompt
+    total_rows = 0
+    try:
+        for model in args.models:
+            for label, base_prompt in prompts:
+                prompt = f"/think\n{base_prompt}" if args.thinking else base_prompt
 
-            for run_num in range(1, args.runs + 1):
-                run_label = f"run {run_num}/{args.runs}"
-                print(f"Benchmarking {model} / {label} / {run_label} {'[thinking]' if args.thinking else ''}...")
+                for run_num in range(1, args.runs + 1):
+                    run_label = f"run {run_num}/{args.runs}"
+                    print(f"Benchmarking {model} / {label} / {run_label} {'[thinking]' if args.thinking else ''}...")
 
-                if not args.skip_cold:
-                    stop_model(args.host, model)
-                    cold = generate_once(args.host, model, prompt, args.keep_alive)
-                    runtime = get_model_runtime(args.host, model)
-                    rows.append(flatten_result(model, "cold", cold, runtime, label, run_num, args.thinking))
-                    raw.append({"model": model, "prompt": label, "prompt_text": base_prompt, "phase": "cold", "run": run_num,
-                                "thinking": args.thinking, "response": cold, "runtime": runtime})
+                    if not args.skip_cold:
+                        stop_model(args.host, model)
+                        cold = generate_once(args.host, model, prompt, args.keep_alive)
+                        runtime = get_model_runtime(args.host, model)
+                        row = flatten_result(model, "cold", cold, runtime, label, run_num, args.thinking)
+                        writer.write_result(row, model, label, base_prompt, "cold", run_num, args.thinking, cold, runtime)
+                        total_rows += 1
 
-                if not args.skip_warm:
-                    warm = generate_once(args.host, model, prompt, args.keep_alive)
-                    runtime = get_model_runtime(args.host, model)
-                    rows.append(flatten_result(model, "warm", warm, runtime, label, run_num, args.thinking))
-                    raw.append({"model": model, "prompt": label, "prompt_text": base_prompt, "phase": "warm", "run": run_num,
-                                "thinking": args.thinking, "response": warm, "runtime": runtime})
+                    if not args.skip_warm:
+                        warm = generate_once(args.host, model, prompt, args.keep_alive)
+                        runtime = get_model_runtime(args.host, model)
+                        row = flatten_result(model, "warm", warm, runtime, label, run_num, args.thinking)
+                        writer.write_result(row, model, label, base_prompt, "warm", run_num, args.thinking, warm, runtime)
+                        total_rows += 1
 
-            if args.concurrent > 0:
-                result = run_concurrent_test(args.host, model, prompt, args.keep_alive, args.concurrent)
-                result["model"] = model
-                result["prompt"] = label
-                concurrent_results.append(result)
+                if args.concurrent > 0:
+                    result = run_concurrent_test(args.host, model, prompt, args.keep_alive, args.concurrent)
+                    result["model"] = model
+                    result["prompt"] = label
+                    writer.write_concurrent(result)
 
-    if not rows:
+    except KeyboardInterrupt:
+        print(f"\nInterrupted — {total_rows} rows already saved to {writer.jsonl_path}")
+    finally:
+        writer.close()
+
+    if total_rows == 0:
         print("No benchmark rows were generated.", file=sys.stderr)
         return 1
 
-    avg_rows = compute_averages(rows) if args.runs > 1 else []
-    write_reports(args.output_dir, rows, raw, avg_rows, concurrent_results)
-
-    print(f"\nTotal runs: {len(rows)}")
-    if avg_rows:
-        print(f"Averaged summary rows: {len(avg_rows)}")
+    writer.finalize(args.runs)
     return 0
 
 
