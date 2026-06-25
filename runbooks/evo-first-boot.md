@@ -2,14 +2,24 @@
 
 ## Purpose
 
-Bring the EVO-X2 online as a stable local AI services host.
+Bring the GMKtec EVO-X2 online as a stable local AI services host. This runbook reflects a
+validated real-world deployment — every step has been run on this exact hardware.
 
 ## Hardware
 
-- GMKtec Mini AI — AMD Ryzen AI Max+ 395 (Strix Halo, gfx1151, RDNA 3.5, 40 CUs)
-- 128GB unified memory (GPU and CPU share the same pool — no discrete VRAM ceiling)
+- GMKtec EVO-X2 — AMD Ryzen AI Max+ 395 (Strix Halo, gfx1151, RDNA 3.5, 40 CUs)
+- 128GB unified memory (GPU and CPU share the same physical pool — no discrete VRAM)
 - 2TB NVMe storage
 - Ubuntu 24.04 LTS
+
+### Memory Architecture (Read This First)
+
+The 128GB pool is split at the BIOS level:
+- **GPU UMA (VRAM):** 96GB (set in BIOS)
+- **CPU system RAM:** ~31GB (remainder)
+
+This means if a model falls back to CPU, it only has 31GB. A 35B model alone is 21GB —
+add a 32K KV cache and you OOM instantly. **GPU inference is not optional on this machine.**
 
 ## Reference
 
@@ -51,7 +61,7 @@ Access BIOS at startup via **ESC** or **DEL**. Apply these settings before insta
 
 During installation:
 - Select **Install OpenSSH server** for remote access from MacBook
-- Standard partitioning is fine
+- Standard partitioning is fine — the LVM will be expanded in the next step
 
 After first boot into the OS:
 
@@ -60,7 +70,10 @@ sudo apt update && sudo apt upgrade -y
 sudo apt install -y curl wget git htop tuned tmux
 ```
 
-**Critical — expand LVM to use the full drive immediately after first boot.** Ubuntu's installer defaults to ~100GB root partition and leaves the rest unallocated. You will run out of space pulling models.
+### Expand LVM to Full Drive
+
+**Critical — do this immediately.** Ubuntu's installer defaults to ~100GB root partition
+and leaves the rest of the 2TB drive unallocated. You will run out of space pulling models.
 
 ```bash
 sudo lvextend -l +100%FREE /dev/mapper/ubuntu--vg-ubuntu--lv
@@ -68,7 +81,7 @@ sudo resize2fs /dev/mapper/ubuntu--vg-ubuntu--lv
 df -h  # confirm / shows ~2TB
 ```
 
-Set hostname and confirm network:
+### Hostname and Network
 
 ```bash
 sudo hostnamectl set-hostname evo-x2
@@ -76,12 +89,6 @@ ip a  # confirm IP, note it for static/reserved DHCP lease
 ```
 
 ### Performance Profile
-
-Enable the accelerator performance tuning profile for a free 5-8% improvement:
-
-> `tuned` is included in the apt install above. If you skipped that step or hit an error,
-> `systemctl enable --now tuned` will fail with "Unit file tuned.service does not exist".
-> Run `sudo apt install -y tuned` first, then continue.
 
 ```bash
 sudo systemctl enable --now tuned
@@ -95,8 +102,8 @@ tuned-adm active  # confirm profile is set
 
 Kernel **6.16.9 specifically** is required for full Strix Halo memory access.
 
-> Do NOT use kernel 6.17 — it has a known ABI incompatibility with ROCm that causes
-> llama-server to segfault on startup. Stay on 6.16.9 until ROCm confirms 6.17 support.
+> Do NOT use kernel 6.17 — known ABI incompatibility with ROCm causes llama-server to
+> segfault on startup. Stay on 6.16.9 until ROCm confirms 6.17 support.
 
 Check current kernel:
 ```bash
@@ -116,20 +123,16 @@ mainline install 6.16.9
 grep "menuentry" /boot/grub/grub.cfg | grep "6.16.9"
 ```
 
-If the 6.16.9 entry is missing, the install completed but grub wasn't updated. Fix:
+If the 6.16.9 entry is missing, grub wasn't updated. Fix:
 ```bash
 mainline install 6.16.9  # re-run — the reinstall triggers update-grub
-# OR manually:
+# OR:
 sudo update-grub
 ```
 
 Confirm the entry appears, then reboot:
 ```bash
 sudo reboot
-```
-
-Confirm after reboot:
-```bash
 uname -r  # should show 6.16.9-061609-generic
 ```
 
@@ -137,8 +140,7 @@ uname -r  # should show 6.16.9-061609-generic
 
 ## Step 3 — GPU Memory Configuration
 
-This is the most critical step for inference performance. Without it, the GPU can only
-access a small slice of the 128GB unified pool.
+Without this step the GPU can only access a small slice of the 128GB unified pool.
 
 ### GRUB Parameters
 
@@ -160,7 +162,7 @@ Apply:
 sudo update-grub
 ```
 
-### Modprobe Config (Belt and Suspenders)
+### Modprobe Config
 
 Also set via modprobe so it persists across kernel updates:
 
@@ -185,11 +187,9 @@ sudo reboot
 
 ## Step 4 — ROCm Drivers
 
-Install AMD's unified Linux drivers and ROCm for GPU-accelerated inference.
-
-> `amdgpu-dkms` and `rocm` are **not** in the default Ubuntu repos. Running
-> `apt install rocm` will fail with "Unable to locate package". The AMD repo
-> must be added first via the `amdgpu-install` script.
+> `amdgpu-dkms` and `rocm` are **not** in the default Ubuntu repos. Do not run
+> `apt install rocm` — it will fail. The AMD repo must be added first via the
+> `amdgpu-install` script.
 
 Download and install the AMD repo configurator (check current version at
 https://rocm.docs.amd.com/projects/install-on-linux/en/latest/install/quick-start.html):
@@ -198,22 +198,12 @@ https://rocm.docs.amd.com/projects/install-on-linux/en/latest/install/quick-star
 wget https://repo.radeon.com/amdgpu-install/6.4/ubuntu/noble/amdgpu-install_6.4.60400-1_all.deb
 sudo apt install -y ./amdgpu-install_6.4.60400-1_all.deb
 sudo apt update
-```
-
-Then install the drivers and ROCm stack:
-
-> **Critical:** After ROCm install, Ollama will default to CPU inference. The HSA
-> override and ROCm library path must be added to the Ollama service. See Step 6.
-
-```bash
 sudo amdgpu-install -y --usecase=rocm
 ```
 
 This pulls several GB — let it run.
 
 ### GPU Device Permissions
-
-Create a udev rule so your user can access the GPU without sudo:
 
 ```bash
 sudo nano /etc/udev/rules.d/99-amd-kfd.rules
@@ -226,8 +216,6 @@ SUBSYSTEM=="drm", KERNEL=="card[0-9]*", GROUP="render", MODE="0666"
 SUBSYSTEM=="drm", KERNEL=="renderD[0-9]*", GROUP="render", MODE="0666"
 ```
 
-This prevents `HSA_STATUS_ERROR_OUT_OF_RESOURCES` errors during inference.
-
 ### User Groups
 
 ```bash
@@ -235,23 +223,37 @@ sudo usermod -aG render,video $USER
 newgrp render
 ```
 
-**Before rebooting**, check if `amdgpu-dkms` left a blacklist that will block the in-tree driver:
+### Check for amdgpu Blacklist
+
+`amdgpu-dkms` sometimes fails to build and leaves a blacklist that blocks the in-tree
+driver. Check for it before rebooting:
 
 ```bash
 grep -r "amdgpu" /etc/modprobe.d/
 ```
 
-If you see `blacklist amdgpu` in any file, remove it:
-
+If you see `blacklist amdgpu` in any file:
 ```bash
-sudo rm /etc/modprobe.d/blacklist-amdgpu.conf
+sudo dpkg --purge amdgpu-dkms
+sudo rm -f /etc/modprobe.d/blacklist-amdgpu.conf
 sudo update-initramfs -u
 ```
 
-> This blacklist is created automatically when `amdgpu-dkms` fails to build. Without
-> removing it, the in-tree amdgpu driver will not load on boot and the GPU disappears.
+> Use `--purge` not `--remove` — `--remove` leaves the config files behind and the
+> blacklist comes back on next boot.
 
-Reboot to apply all driver and permission changes:
+### Blacklist the NPU Driver
+
+The `amdxdna` NPU driver conflicts with amdgpu for shared virtual memory and will
+flood the kernel log with errors and destabilize the system at idle. Ollama does not
+use the NPU — blacklist it:
+
+```bash
+echo "blacklist amdxdna" | sudo tee /etc/modprobe.d/blacklist-amdxdna.conf
+sudo update-initramfs -u
+```
+
+Reboot to apply all driver changes:
 
 ```bash
 sudo reboot
@@ -267,14 +269,17 @@ Confirm everything is working before installing Ollama.
 # Kernel version — must be 6.16.9
 uname -r
 
-# GPU memory — should show ~128GB (131072 MB)
-cat /sys/class/drm/card*/device/mem_info_gtt_total
+# GPU driver loaded
+lsmod | grep amdgpu
 
-# All memory stats
-for file in /sys/class/drm/card*/device/mem_info*; do echo "$file: $(cat $file)"; done
+# NPU driver absent
+lsmod | grep amdxdna  # should return nothing
+
+# GPU memory — should show ~137438953472 bytes (128GB)
+find /sys/devices -name "mem_info_gtt_total" 2>/dev/null | xargs cat
 
 # ROCm — GPU should be detected as gfx1151
-rocminfo | grep -A50 'Agent 2'
+rocminfo | grep -A5 "Agent 2"
 
 # Live GPU stats
 rocm-smi
@@ -282,309 +287,35 @@ rocm-smi
 
 **Pass criteria:**
 - Kernel shows 6.16.9
-- `mem_info_gtt_total` shows ~128GB
+- `amdgpu` loaded, `amdxdna` absent
+- `mem_info_gtt_total` shows ~137438953472
 - `rocminfo` shows GPU agent with gfx1151
-- `rocm-smi` shows GPU accessible
+- `rocm-smi` shows GPU accessible (GPU% column responds during inference; VRAM% always
+  shows 0% on unified memory — this is expected)
 
-If verification passes, proceed. If not, do not continue — diagnose first.
+If verification passes, proceed. If not, diagnose before continuing.
 
 ---
 
-## Step 6 — Ollama (Native, Not Docker)
+## Step 6 — Ollama
 
 Ollama runs natively on the host for best AMD GPU performance. Docker adds unnecessary
 complexity for ROCm passthrough.
 
 ```bash
 curl -fsSL https://ollama.ai/install.sh | sh
-```
-
-Confirm Ollama is running:
-
-```bash
-systemctl status ollama
-curl http://localhost:11434/api/tags
-```
-
-Enable on boot:
-
-```bash
 sudo systemctl enable ollama
 ```
 
-### Context Window Configuration
+### Service Override (Critical)
 
-Ollama's default context window is conservative. Agent chains pass accumulated state
-between nodes — scripts, logs, prior outputs. Set a larger default so benchmark results
-reflect real agent workload conditions:
+Without this configuration Ollama cannot find the GPU and defaults to CPU inference.
 
 ```bash
 sudo systemctl edit ollama
 ```
 
-Add:
-```ini
-[Service]
-Environment="OLLAMA_NUM_CTX=32768"
-Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/rocm/bin"
-Environment="LD_LIBRARY_PATH=/opt/rocm/lib"
-Environment="HSA_OVERRIDE_GFX_VERSION=11.5.1"
-```
-
-> `HSA_OVERRIDE_GFX_VERSION=11.5.1` is required for gfx1151 (Strix Halo). Without it,
-> Ollama cannot detect the GPU and falls back to CPU inference (~5 t/s vs ~40-70 t/s).
-> `11.0.0` does NOT work — must be `11.5.1`.
-
-Apply:
-```bash
-sudo systemctl daemon-reload
-sudo systemctl restart ollama
-```
-
-Verify GPU is being used:
-```bash
-ollama run qwen3:8b "hi" &
-sleep 3 && ollama ps  # PROCESSOR column must show GPU, not CPU
-```
-
----
-
-## Step 7 — Docker (For Everything Else)
-
-```bash
-sudo apt install -y docker.io docker-compose-plugin
-sudo usermod -aG docker $USER
-newgrp docker
-```
-
-Verify:
-
-```bash
-docker run hello-world
-```
-
----
-
-## Step 8 — Pull Models
-
-Pull smallest to largest so you're productive immediately while larger models download.
-
-```bash
-# Embeddings — required for RAG and memory
-ollama pull nomic-embed-text
-
-# Chat and reasoning — comparison set
-ollama pull qwen3:8b
-ollama pull deepseek-r1:8b
-ollama pull qwen3:14b
-ollama pull deepseek-r1:14b
-
-# Vision — required for Teams screenshot parsing workflow
-ollama pull llama3.2-vision:11b
-
-# Coding and scripting — primary PowerShell/Graph generation models
-ollama pull qwen2.5-coder:7b
-ollama pull qwen2.5-coder:14b
-ollama pull qwen2.5-coder:32b
-
-# Qwen3.6 — coding-focused, 256K context, vision support, thinking preservation
-# Benchmark against qwen2.5-coder:32b to determine best coding daily driver
-ollama pull qwen3.6:35b
-```
-
-Confirm all models loaded:
-
-```bash
-ollama list
-```
-
----
-
-## Step 9 — First Model Test
-
-```bash
-ollama run qwen3:14b
-```
-
-Ask it something simple. Confirm response is coherent and GPU is being used:
-
-```bash
-# In a second terminal while model is running
-rocm-smi  # GPU% should show >0% during inference; VRAM% will always show 0% on unified memory — this is expected
-```
-
-**Expected performance baseline (validated on same hardware):**
-- qwen3:30B — ~71 tok/sec
-- qwen3:8b — ~38-40 tok/sec (thinking mode on); ~55 tok/sec (thinking off)
-- qwen3:14b — ~59 tok/sec
-- qwen3.6:35b (MoE) — ~50 tok/sec at 262K context
-
-If numbers are significantly lower, check that GRUB parameters applied correctly.
-
----
-
-## Step 10 — Confirm Reachable from MacBook
-
-From the MacBook terminal:
-
-```bash
-curl http://evo-x2.local:11434/api/tags
-```
-
-If mDNS doesn't resolve, use the IP directly:
-
-```bash
-curl http://<evo-ip>:11434/api/tags
-```
-
----
-
-## Step 11 — Run Benchmark
-
-Once models are pulled, run the full benchmark suite:
-
-```bash
-cd /opt/ai-runtime
-python3 scripts/ollama_model_benchmark.py \
-  qwen3:8b qwen3:14b deepseek-r1:8b deepseek-r1:14b \
-  qwen2.5-coder:7b qwen2.5-coder:14b qwen2.5-coder:32b qwen3.6:35b \
-  --host http://localhost:11434 \
-  --prompt-set all \
-  --runs 3
-```
-
-Then score the outputs:
-
-```bash
-python3 scripts/opus_scorer.py \
-  projects/homelab/outputs/model-benchmarks/ollama-benchmark-*.json
-```
-
-Results saved to `AI/projects/homelab/outputs/model-benchmarks/`.
-
----
-
-## Step 12 — Claude Code (Remote Dev) and Claude API Access
-
-### Claude API Key
-
-The Opus scorer and any agent that calls Claude needs the API key available as an
-environment variable. Add it to your shell profile so it persists across sessions:
-
-```bash
-echo 'export ANTHROPIC_API_KEY="sk-ant-..."' >> ~/.bashrc
-source ~/.bashrc
-```
-
-Verify:
-```bash
-echo $ANTHROPIC_API_KEY  # should print the key
-```
-
-> Never commit this value to git. The `.gitignore` already excludes `.env` files —
-> if you prefer storing it there, use a `.env` file and load it via `source .env`.
-
-### Claude Code Installation
-
-Claude Code lets you SSH into the EVO and run an AI-assisted dev session remotely
-from your MacBook terminal — same experience as local, running on EVO hardware.
-
-Install Node.js first (Claude Code requires it):
-```bash
-curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
-sudo apt install -y nodejs
-node --version  # confirm 22.x
-```
-
-Install Claude Code globally:
-```bash
-npm install -g @anthropic-ai/claude-code
-```
-
-Confirm it's working:
-```bash
-claude --version
-```
-
-### Remote Dev Workflow
-
-Claude Code has a built-in remote control feature — no manual SSH session required.
-
-**Option 1 — Claude Code UI (recommended):**
-In the Claude Code sidebar, click the host selector → **Set up Remote Control** →
-**Add SSH host** → enter `charles@evo-x2.local`. Claude Code handles the connection
-natively. All file access and commands run on the EVO, MacBook is just the UI.
-
-**Option 2 — Terminal:**
-```bash
-claude rc
-```
-Follow the prompts to register the EVO as a remote host.
-
-Claude Code will use the `ANTHROPIC_API_KEY` from the EVO's environment. All file
-access, bash commands, and context are on the EVO — your MacBook is just the interface.
-
-### SSH Key for MacBook → EVO
-
-Add your MacBook's public key to the EVO so you can SSH without a password:
-
-On MacBook:
-```bash
-ssh-copy-id charles@evo-x2.local
-```
-
-Or manually — on MacBook, copy the public key:
-```bash
-cat ~/.ssh/id_ed25519.pub
-```
-
-On EVO, append it:
-```bash
-mkdir -p ~/.ssh
-echo "ssh-ed25519 AAAA..." >> ~/.ssh/authorized_keys
-chmod 600 ~/.ssh/authorized_keys
-```
-
-Test passwordless login:
-```bash
-ssh charles@evo-x2.local  # should connect without password prompt
-```
-
-> MCP server integration (exposing EVO tools to Claude Code on MacBook) is a
-> future phase — see build-roadmap.md Phase 6+.
-
----
-
-## Known Issues
-
-| Issue | Cause | Fix |
-|---|---|---|
-| `Unable to locate package rocm` | AMD repo not added | Use `amdgpu-install` script first — see Step 4 |
-| `Unit file tuned.service does not exist` | tuned not installed | `sudo apt install -y tuned` then retry |
-| Kernel installed but not in grub after reboot | mainline didn't trigger update-grub | Re-run `mainline install 6.16.9` or `sudo update-grub` before rebooting |
-| Ollama runs on CPU despite GPU being present | `HSA_OVERRIDE_GFX_VERSION` not set or wrong value | Add `HSA_OVERRIDE_GFX_VERSION=11.5.1` to ollama systemd override — `11.0.0` does not work for gfx1151 |
-| amdgpu missing after reboot, `lsmod` shows nothing | `amdgpu-dkms` build failure creates `/etc/modprobe.d/blacklist-amdgpu.conf` which blocks the in-tree driver | `sudo rm /etc/modprobe.d/blacklist-amdgpu.conf && sudo update-initramfs -u && sudo reboot` |
-| llama-server segfaults on startup | Kernel 6.17 + ROCm ABI mismatch | Stay on kernel 6.16.9 |
-| `HSA_STATUS_ERROR_OUT_OF_RESOURCES` | Missing udev rules or wrong groups | Add 99-amd-kfd.rules, re-add user to render/video |
-| GPU only sees small memory slice | GRUB gttsize not applied | Verify `/etc/default/grub` and rerun `update-grub` |
-| Slow inference despite GPU | Flash attention disabled | Add `-fa 1` flag if using llama.cpp directly |
-| Wi-Fi not working | Ubuntu 25.x kernel issue | Use Ubuntu 24.04 LTS only |
-| ROCm unspecified launch failure during long generation | XNACK disabled — GPU crashes on page fault instead of recovering | Add `Environment="HSA_XNACK=1"` to ollama systemd override and restart |
-| `amdxdna` SVA bind failures flooding kernel log, system unstable at idle | NPU driver conflicts with amdgpu for SVM memory | `echo "blacklist amdxdna" \| sudo tee /etc/modprobe.d/blacklist-amdxdna.conf && sudo update-initramfs -u && sudo reboot` |
-
----
-
-## Session Notes — 2026-06-25 Boot/OOM Fixes
-
-### What Was Broken
-
-- Ollama loading models on CPU after reboots — race condition where Ollama started before the amdgpu driver was fully initialized
-- OOM kills — CPU RAM is only ~31GB (96GB is reserved as GPU UMA); a model falling back to CPU + 32K KV cache would exhaust system RAM instantly
-- Multiple models loading simultaneously from Open WebUI compounding the OOM risk
-
-### Fixes Applied
-
-`/etc/systemd/system/ollama.service.d/override.conf`:
+Paste the entire block — the `[Unit]` section must be included:
 
 ```ini
 [Unit]
@@ -596,72 +327,230 @@ Environment="OLLAMA_NUM_CTX=32768"
 Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/rocm/bin"
 Environment="LD_LIBRARY_PATH=/opt/rocm/lib"
 Environment="HSA_OVERRIDE_GFX_VERSION=11.5.1"
-Environment="OLLAMA_MAX_LOADED_MODELS=1"
 Environment="HSA_XNACK=1"
+Environment="OLLAMA_MAX_LOADED_MODELS=1"
 ExecStartPre=/bin/bash -c 'until [ -c /dev/dri/renderD128 ]; do sleep 1; done'
 ```
 
-- `After=` / `Wants=` — systemd waits for the DRM device node before starting Ollama
-- `ExecStartPre` — belt-and-suspenders poll in case driver init lags behind the device node
-- `OLLAMA_MAX_LOADED_MODELS=1` — prevents Open WebUI from silently holding multiple models in VRAM
+| Variable | Why |
+|---|---|
+| `HSA_OVERRIDE_GFX_VERSION=11.5.1` | Required for gfx1151 — without it Ollama falls back to CPU (~5 t/s). `11.0.0` does NOT work. |
+| `HSA_XNACK=1` | Enables page fault recovery on the GPU. Without it, long inference runs crash with "ROCm unspecified launch failure". |
+| `LD_LIBRARY_PATH` | Ensures Ollama finds ROCm libraries at `/opt/rocm/lib` |
+| `After=` / `ExecStartPre=` | Waits for the GPU device node before starting — prevents CPU fallback on fast boots |
+| `OLLAMA_MAX_LOADED_MODELS=1` | Prevents Open WebUI from holding multiple models in memory simultaneously |
 
-### Memory Architecture (Important)
-
-128GB unified memory is split at BIOS level:
-- **GPU UMA (VRAM):** 96GB
-- **CPU system RAM:** ~31GB
-
-A model on CPU only has 31GB. A 35GB model + 32K KV cache cannot fit. This is why OOM happens — not because the machine is small, but because the BIOS UMA split means CPU fallback = instant OOM.
-
-**Rule:** never load more than one large model. Stop the current model before switching.
-
-### Models Removed
-
-- `llama3.2-vision:11b` — ROCm does not support mllama architecture
-- `hf.co/SandLogicTechnologies/Mistral-NeMo-12B-Instruct-GGUF:Q4_K_M` — removed from stack
-- `hf.co/OBLITERATUS/Qwen3.6-27B-OBLITERATED:latest` — 0.54 t/s due to 262K context default, removed
-- `hf.co/HauhauCS/Qwen3.6-27B-Uncensored-HauhauCS-Aggressive:latest` — Q2 quant, garbage output
-
-### Confirmed Working
-
-- `qwen3:8b` — ~40 t/s, 100% GPU
-- `qwen3:14b` — ~59 t/s, 100% GPU
-- `qwen3.6:35b` — MoE, ~50 t/s, 100% GPU, vision capable, 262K context
-- `hf.co/HauhauCS/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive:Q4_K_M` — ~55 t/s, 100% GPU, 262K context
-
-### If CPU Fallback Happens Again
-
+Apply:
 ```bash
-ollama stop <model>
+sudo systemctl daemon-reload
 sudo systemctl restart ollama
-sleep 3
-ollama run <model> "hi"
-ollama ps  # PROCESSOR must show GPU
 ```
 
-Check for driver instability (different problem from boot ordering):
+Verify GPU is being used:
+```bash
+ollama run qwen3:8b "hi" &
+sleep 5 && ollama ps  # PROCESSOR column must show GPU, not CPU
+```
+
+---
+
+## Step 7 — Docker
 
 ```bash
-journalctl -k | grep -E "amdgpu.*reset|ring.*timeout"
+sudo apt install -y docker.io docker-compose
+sudo usermod -aG docker $USER
+newgrp docker
+docker run hello-world
 ```
+
+> Note: `docker-compose-plugin` is not available on Ubuntu 24.04. Use `docker-compose` (standalone).
+
+---
+
+## Step 8 — Open WebUI
+
+```bash
+docker run -d \
+  --network=host \
+  --name open-webui \
+  --restart always \
+  -v open-webui:/app/backend/data \
+  ghcr.io/open-webui/open-webui:main
+```
+
+Verify:
+```bash
+docker ps | grep webui
+```
+
+Access at `http://localhost:3000` or `http://<evo-ip>:3000` from LAN.
+
+---
+
+## Step 9 — Pull Models
+
+Pull smallest to largest so you're productive immediately while larger models download.
+
+```bash
+# Embeddings — required for RAG and memory
+ollama pull nomic-embed-text
+
+# Chat and reasoning
+ollama pull qwen3:8b
+ollama pull qwen3:14b
+ollama pull deepseek-r1:8b
+ollama pull deepseek-r1:14b
+
+# Coding and scripting — primary PowerShell/Graph generation models
+ollama pull qwen2.5-coder:7b
+ollama pull qwen2.5-coder:14b
+ollama pull qwen2.5-coder:32b
+
+# Qwen3.6 MoE — 36B total, ~3B active, vision capable, 262K context, ~50 t/s
+ollama pull qwen3.6:35b
+```
+
+> **Note:** `llama3.2-vision:11b` uses the `mllama` architecture which ROCm does not
+> currently support. Skip it — `qwen3.6:35b` covers vision use cases.
+
+Confirm:
+```bash
+ollama list
+```
+
+---
+
+## Step 10 — First Model Test
+
+```bash
+ollama run qwen3:14b "explain what this machine is in one paragraph"
+```
+
+In a second terminal while it responds:
+```bash
+ollama ps          # PROCESSOR must show GPU
+rocm-smi           # GPU% must show >0%
+```
+
+**Expected performance baseline (validated on this hardware):**
+
+| Model | Type | Speed |
+|---|---|---|
+| qwen3:8b | Dense | ~38-40 t/s (thinking on) / ~55 t/s (thinking off) |
+| qwen3:14b | Dense | ~22 t/s (thinking on) / ~59 t/s (thinking off) |
+| qwen3.6:35b | MoE | ~50 t/s at 262K context |
+| qwen2.5-coder:32b | Dense | ~8-10 t/s |
+
+If numbers are significantly lower, check that GRUB parameters applied and the GPU is
+not falling back to CPU.
+
+---
+
+## Step 11 — Confirm Reachable from MacBook
+
+From the MacBook terminal:
+```bash
+curl http://evo-x2.local:11434/api/tags
+```
+
+If mDNS doesn't resolve, use the IP directly:
+```bash
+curl http://<evo-ip>:11434/api/tags
+```
+
+---
+
+## Step 12 — Run Benchmark
+
+```bash
+cd ~/projects/ai-runtime-starter
+python3 scripts/ollama_model_benchmark.py \
+  qwen3:8b qwen3:14b qwen2.5-coder:32b qwen3.6:35b \
+  --host http://localhost:11434 \
+  --prompt-set all \
+  --prompt-size short \
+  --runs 1
+```
+
+Results stream to `~/benchmark-results/` as each prompt completes — safe to Ctrl-C.
+
+Then score with Opus:
+```bash
+python3 scripts/opus_scorer.py ~/benchmark-results/ollama-benchmark-*.jsonl
+```
+
+---
+
+## Step 13 — Claude Code and API Key
+
+### API Key
+
+```bash
+echo 'export ANTHROPIC_API_KEY="sk-ant-..."' >> ~/.bashrc
+source ~/.bashrc
+echo $ANTHROPIC_API_KEY  # confirm it prints
+```
+
+> Never commit this value to git.
+
+### Claude Code
+
+```bash
+sudo npm install -g @anthropic-ai/claude-code
+claude --version
+claude  # log in with Anthropic account on first launch
+```
+
+### SSH Key for MacBook → EVO
+
+On MacBook:
+```bash
+ssh-copy-id <user>@evo-x2.local
+```
+
+Test:
+```bash
+ssh <user>@evo-x2.local  # should connect without password prompt
+```
+
+---
+
+## Known Issues
+
+| Issue | Cause | Fix |
+|---|---|---|
+| `Unable to locate package rocm` | AMD repo not added | Use `amdgpu-install` script — see Step 4 |
+| `Unit file tuned.service does not exist` | tuned not installed | `sudo apt install -y tuned` then retry |
+| Kernel not in grub after mainline install | mainline didn't trigger update-grub | Re-run `mainline install 6.16.9` or `sudo update-grub` |
+| Ollama runs on CPU despite GPU present | `HSA_OVERRIDE_GFX_VERSION` not set | Must be `11.5.1` — `11.0.0` does not work for gfx1151 |
+| CPU fallback persists after setting HSA override | Race condition — Ollama started before GPU driver ready | Ensure `[Unit] After=dev-dri-renderD128.device` and `ExecStartPre` are in override — see Step 6 |
+| amdgpu missing after reboot | `amdgpu-dkms` blacklist surviving purge | `sudo dpkg --purge amdgpu-dkms && sudo rm -f /etc/modprobe.d/blacklist-amdgpu.conf && sudo update-initramfs -u && sudo reboot` — must use `--purge` not `--remove` |
+| ROCm unspecified launch failure on long generation | XNACK disabled — GPU crashes on page fault | Add `Environment="HSA_XNACK=1"` to ollama override — see Step 6 |
+| `amdxdna` SVA bind errors flooding kernel log, system unstable at idle | NPU driver conflicts with amdgpu for SVM memory | Blacklist amdxdna — see Step 4 |
+| OOM kill during model load | Model fell back to CPU — only 31GB available to CPU | Confirm GPU inference is working before loading large models |
+| `VRAM% 0%` in rocm-smi | Expected on unified memory — no discrete VRAM to measure | Normal — use `GPU%` column as the utilization indicator |
+| `mllama` architecture error on llama3.2-vision | ROCm does not support mllama | Skip — use qwen3.6:35b for vision tasks |
+| `docker-compose-plugin` not found | Not available on Ubuntu 24.04 | Use `docker-compose` (standalone) |
+| Model outputs raw role tokens (`<\|start_of_role\|>`) | GGUF missing embedded chat template | Create a Modelfile with the correct TEMPLATE for the model |
+| Wi-Fi not working | Ubuntu 25.x kernel issue | Use Ubuntu 24.04 LTS only |
 
 ---
 
 ## Done Criteria
 
-- [ ] BIOS configured — Secure Boot off, UMA 96GB+, IOMMU off, 85W power mode
+- [ ] BIOS configured — Secure Boot off, UMA 96GB, IOMMU off, 85W
 - [ ] Kernel 6.16.9 confirmed via `uname -r`
+- [ ] LVM expanded — `df -h /` shows ~2TB
 - [ ] GPU memory 128GB confirmed via `mem_info_gtt_total`
+- [ ] `amdxdna` blacklisted — `lsmod | grep amdxdna` returns nothing
 - [ ] `rocminfo` shows gfx1151 GPU agent
 - [ ] `tuned` profile set to `accelerator-performance`
-- [ ] EVO reachable from MacBook by hostname
-- [ ] Ollama API responding on port 11434
-- [ ] ROCm GPU visible during model inference
+- [ ] Ollama service override applied with all env vars
+- [ ] `ollama ps` shows GPU (not CPU) during inference
+- [ ] Open WebUI running and reachable at port 3000
 - [ ] All models pulled and listed in `ollama list`
-- [ ] Benchmark run completed, scored, results saved
-- [ ] Docker running and verified
-- [ ] `ANTHROPIC_API_KEY` set in `~/.bashrc`, persists across sessions
-- [ ] Claude Code installed, `claude --version` responds
+- [ ] EVO reachable from MacBook by hostname
+- [ ] Benchmark run completed, results saved to `~/benchmark-results/`
+- [ ] `ANTHROPIC_API_KEY` set in `~/.bashrc`
+- [ ] Claude Code installed and logged in
 - [ ] SSH passwordless login from MacBook confirmed
-- [ ] Claude Code session launched remotely over SSH from MacBook
-- [ ] Notes saved under this homelab project
