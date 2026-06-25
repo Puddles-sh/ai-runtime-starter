@@ -57,7 +57,15 @@ After first boot into the OS:
 
 ```bash
 sudo apt update && sudo apt upgrade -y
-sudo apt install -y curl wget git htop tuned
+sudo apt install -y curl wget git htop tuned tmux
+```
+
+**Critical — expand LVM to use the full drive immediately after first boot.** Ubuntu's installer defaults to ~100GB root partition and leaves the rest unallocated. You will run out of space pulling models.
+
+```bash
+sudo lvextend -l +100%FREE /dev/mapper/ubuntu--vg-ubuntu--lv
+sudo resize2fs /dev/mapper/ubuntu--vg-ubuntu--lv
+df -h  # confirm / shows ~2TB
 ```
 
 Set hostname and confirm network:
@@ -70,6 +78,10 @@ ip a  # confirm IP, note it for static/reserved DHCP lease
 ### Performance Profile
 
 Enable the accelerator performance tuning profile for a free 5-8% improvement:
+
+> `tuned` is included in the apt install above. If you skipped that step or hit an error,
+> `systemctl enable --now tuned` will fail with "Unit file tuned.service does not exist".
+> Run `sudo apt install -y tuned` first, then continue.
 
 ```bash
 sudo systemctl enable --now tuned
@@ -97,12 +109,28 @@ sudo add-apt-repository ppa:cappelikan/ppa
 sudo apt update
 sudo apt install mainline
 mainline install 6.16.9
+```
+
+**Before rebooting**, verify the kernel was added to grub:
+```bash
+grep "menuentry" /boot/grub/grub.cfg | grep "6.16.9"
+```
+
+If the 6.16.9 entry is missing, the install completed but grub wasn't updated. Fix:
+```bash
+mainline install 6.16.9  # re-run — the reinstall triggers update-grub
+# OR manually:
+sudo update-grub
+```
+
+Confirm the entry appears, then reboot:
+```bash
 sudo reboot
 ```
 
 Confirm after reboot:
 ```bash
-uname -r  # should show 6.16.9
+uname -r  # should show 6.16.9-061609-generic
 ```
 
 ---
@@ -159,9 +187,29 @@ sudo reboot
 
 Install AMD's unified Linux drivers and ROCm for GPU-accelerated inference.
 
+> `amdgpu-dkms` and `rocm` are **not** in the default Ubuntu repos. Running
+> `apt install rocm` will fail with "Unable to locate package". The AMD repo
+> must be added first via the `amdgpu-install` script.
+
+Download and install the AMD repo configurator (check current version at
+https://rocm.docs.amd.com/projects/install-on-linux/en/latest/install/quick-start.html):
+
 ```bash
-sudo apt install -y amdgpu-dkms rocm
+wget https://repo.radeon.com/amdgpu-install/6.4/ubuntu/noble/amdgpu-install_6.4.60400-1_all.deb
+sudo apt install -y ./amdgpu-install_6.4.60400-1_all.deb
+sudo apt update
 ```
+
+Then install the drivers and ROCm stack:
+
+> **Critical:** After ROCm install, Ollama will default to CPU inference. The HSA
+> override and ROCm library path must be added to the Ollama service. See Step 6.
+
+```bash
+sudo amdgpu-install -y --usecase=rocm
+```
+
+This pulls several GB — let it run.
 
 ### GPU Device Permissions
 
@@ -186,6 +234,22 @@ This prevents `HSA_STATUS_ERROR_OUT_OF_RESOURCES` errors during inference.
 sudo usermod -aG render,video $USER
 newgrp render
 ```
+
+**Before rebooting**, check if `amdgpu-dkms` left a blacklist that will block the in-tree driver:
+
+```bash
+grep -r "amdgpu" /etc/modprobe.d/
+```
+
+If you see `blacklist amdgpu` in any file, remove it:
+
+```bash
+sudo rm /etc/modprobe.d/blacklist-amdgpu.conf
+sudo update-initramfs -u
+```
+
+> This blacklist is created automatically when `amdgpu-dkms` fails to build. Without
+> removing it, the in-tree amdgpu driver will not load on boot and the GPU disappears.
 
 Reboot to apply all driver and permission changes:
 
@@ -262,11 +326,25 @@ Add:
 ```ini
 [Service]
 Environment="OLLAMA_NUM_CTX=32768"
+Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/rocm/bin"
+Environment="LD_LIBRARY_PATH=/opt/rocm/lib"
+Environment="HSA_OVERRIDE_GFX_VERSION=11.5.1"
 ```
+
+> `HSA_OVERRIDE_GFX_VERSION=11.5.1` is required for gfx1151 (Strix Halo). Without it,
+> Ollama cannot detect the GPU and falls back to CPU inference (~5 t/s vs ~40-70 t/s).
+> `11.0.0` does NOT work — must be `11.5.1`.
 
 Apply:
 ```bash
+sudo systemctl daemon-reload
 sudo systemctl restart ollama
+```
+
+Verify GPU is being used:
+```bash
+ollama run qwen3:8b "hi" &
+sleep 3 && ollama ps  # PROCESSOR column must show GPU, not CPU
 ```
 
 ---
@@ -479,11 +557,88 @@ ssh charles@evo-x2.local  # should connect without password prompt
 
 | Issue | Cause | Fix |
 |---|---|---|
+| `Unable to locate package rocm` | AMD repo not added | Use `amdgpu-install` script first — see Step 4 |
+| `Unit file tuned.service does not exist` | tuned not installed | `sudo apt install -y tuned` then retry |
+| Kernel installed but not in grub after reboot | mainline didn't trigger update-grub | Re-run `mainline install 6.16.9` or `sudo update-grub` before rebooting |
+| Ollama runs on CPU despite GPU being present | `HSA_OVERRIDE_GFX_VERSION` not set or wrong value | Add `HSA_OVERRIDE_GFX_VERSION=11.5.1` to ollama systemd override — `11.0.0` does not work for gfx1151 |
+| amdgpu missing after reboot, `lsmod` shows nothing | `amdgpu-dkms` build failure creates `/etc/modprobe.d/blacklist-amdgpu.conf` which blocks the in-tree driver | `sudo rm /etc/modprobe.d/blacklist-amdgpu.conf && sudo update-initramfs -u && sudo reboot` |
 | llama-server segfaults on startup | Kernel 6.17 + ROCm ABI mismatch | Stay on kernel 6.16.9 |
 | `HSA_STATUS_ERROR_OUT_OF_RESOURCES` | Missing udev rules or wrong groups | Add 99-amd-kfd.rules, re-add user to render/video |
 | GPU only sees small memory slice | GRUB gttsize not applied | Verify `/etc/default/grub` and rerun `update-grub` |
 | Slow inference despite GPU | Flash attention disabled | Add `-fa 1` flag if using llama.cpp directly |
 | Wi-Fi not working | Ubuntu 25.x kernel issue | Use Ubuntu 24.04 LTS only |
+
+---
+
+## Session Notes — 2026-06-25 Boot/OOM Fixes
+
+### What Was Broken
+
+- Ollama loading models on CPU after reboots — race condition where Ollama started before the amdgpu driver was fully initialized
+- OOM kills — CPU RAM is only ~31GB (96GB is reserved as GPU UMA); a model falling back to CPU + 32K KV cache would exhaust system RAM instantly
+- Multiple models loading simultaneously from Open WebUI compounding the OOM risk
+
+### Fixes Applied
+
+`/etc/systemd/system/ollama.service.d/override.conf`:
+
+```ini
+[Unit]
+After=dev-dri-renderD128.device
+Wants=dev-dri-renderD128.device
+
+[Service]
+Environment="OLLAMA_NUM_CTX=32768"
+Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/rocm/bin"
+Environment="LD_LIBRARY_PATH=/opt/rocm/lib"
+Environment="HSA_OVERRIDE_GFX_VERSION=11.5.1"
+Environment="OLLAMA_MAX_LOADED_MODELS=1"
+ExecStartPre=/bin/bash -c 'until [ -c /dev/dri/renderD128 ]; do sleep 1; done'
+```
+
+- `After=` / `Wants=` — systemd waits for the DRM device node before starting Ollama
+- `ExecStartPre` — belt-and-suspenders poll in case driver init lags behind the device node
+- `OLLAMA_MAX_LOADED_MODELS=1` — prevents Open WebUI from silently holding multiple models in VRAM
+
+### Memory Architecture (Important)
+
+128GB unified memory is split at BIOS level:
+- **GPU UMA (VRAM):** 96GB
+- **CPU system RAM:** ~31GB
+
+A model on CPU only has 31GB. A 35GB model + 32K KV cache cannot fit. This is why OOM happens — not because the machine is small, but because the BIOS UMA split means CPU fallback = instant OOM.
+
+**Rule:** never load more than one large model. Stop the current model before switching.
+
+### Models Removed
+
+- `llama3.2-vision:11b` — ROCm does not support mllama architecture
+- `hf.co/SandLogicTechnologies/Mistral-NeMo-12B-Instruct-GGUF:Q4_K_M` — removed from stack
+- `hf.co/OBLITERATUS/Qwen3.6-27B-OBLITERATED:latest` — 0.54 t/s due to 262K context default, removed
+- `hf.co/HauhauCS/Qwen3.6-27B-Uncensored-HauhauCS-Aggressive:latest` — Q2 quant, garbage output
+
+### Confirmed Working
+
+- `qwen3:8b` — ~40 t/s, 100% GPU
+- `qwen3:14b` — ~59 t/s, 100% GPU
+- `qwen3.6:35b` — MoE, ~50 t/s, 100% GPU, vision capable, 262K context
+- `hf.co/HauhauCS/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive:Q4_K_M` — ~55 t/s, 100% GPU, 262K context
+
+### If CPU Fallback Happens Again
+
+```bash
+ollama stop <model>
+sudo systemctl restart ollama
+sleep 3
+ollama run <model> "hi"
+ollama ps  # PROCESSOR must show GPU
+```
+
+Check for driver instability (different problem from boot ordering):
+
+```bash
+journalctl -k | grep -E "amdgpu.*reset|ring.*timeout"
+```
 
 ---
 
