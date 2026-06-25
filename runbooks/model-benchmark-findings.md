@@ -1,6 +1,6 @@
 # Model Benchmark Findings
 
-Last updated: 2026-06-25
+Last updated: 2026-06-25 (Round 2 results added)
 Hardware: GMKtec EVO-X2 (AMD AI Max+ 395, 128 GB unified memory)
 Scorer: claude-opus-4-8 with adaptive thinking
 
@@ -67,20 +67,28 @@ Three tasks scored ≤ 5/10 across all models. Root cause is factual grounding, 
 - phi4:14b — Microsoft-trained model, strongest prior exposure to Graph API surface area
 - qwen3.6:35b — round 1 control; confirms whether challengers actually improve on the baseline
 
-*Results pending.*
+### Round 2 Results
+
+| Model | ga-deprecated-module | ga-error-handling | ps-graph-stale-users | Verdict |
+|---|:---:|:---:|:---:|---|
+| deepseek-r1:14b | 2-3 | 2-3 | 2-3 | Eliminated — chain-of-thought doesn't help without correct training data |
+| phi4:14b | 0-5 | 0-5 | 0-5 | Eliminated — Microsoft heritage didn't translate to Graph API accuracy |
+| qwen3.6:35b (control) | 4-6 | 4-6 | 4-6 | Baseline holds — best of the group, still not production ready without grounding |
+
+**Conclusion:** No model cleared the bar. Root cause confirmed as a grounding problem, not a model capacity or reasoning problem. deepseek-r1's chain-of-thought and phi4's Microsoft training both failed to overcome the training data gap in Graph API surface area.
+
+**Next target:** qwen3.6:35b + RAG vs gemma4:26b + RAG.
 
 ---
 
-## Decision Tree
+## Decision Tree — Resolved
 
 ```
 Round 2 scores > 7/10?
-├── YES → Build task-specific system prompts with grounding context
-│         (correct cmdlets, property names, permission scopes baked in)
-│         → Re-run full prompt set to validate routing table
-└── NO  → Build Scout + Indexer agents to crawl MS Graph PowerShell docs
+├── YES → Build task-specific system prompts (N/A — no model cleared bar)
+└── NO  → Build Scout + Indexer agents to crawl MS Graph PowerShell docs  ← WE ARE HERE
           → RAG retrieval layer injects correct API surface before generation
-          → Re-run shootout with RAG context to confirm gap closes
+          → Re-run: qwen3.6:35b + RAG vs gemma4:26b + RAG
           → If still failing → model problem, not grounding problem
 ```
 
@@ -88,8 +96,8 @@ Round 2 scores > 7/10?
 
 ## Next Steps
 
-- [ ] Score Round 2 results with `opus_scorer.py`
+- [x] Score Round 2 results with `opus_scorer.py`
 - [ ] Build Scout agent (MS Graph docs crawler)
 - [ ] Build Indexer agent (chunk, embed, store)
-- [ ] Re-run failing tasks with RAG context
+- [ ] Re-run failing tasks: qwen3.6:35b + RAG vs gemma4:26b + RAG
 - [ ] Lock routing table and build task-specific system prompts
