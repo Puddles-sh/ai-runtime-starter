@@ -415,7 +415,9 @@ rocm-smi  # GPU% should show >0% during inference; VRAM% will always show 0% on 
 
 **Expected performance baseline (validated on same hardware):**
 - qwen3:30B — ~71 tok/sec
-- qwen3:8b — ~55 tok/sec
+- qwen3:8b — ~38-40 tok/sec (thinking mode on); ~55 tok/sec (thinking off)
+- qwen3:14b — ~59 tok/sec
+- qwen3.6:35b (MoE) — ~50 tok/sec at 262K context
 
 If numbers are significantly lower, check that GRUB parameters applied correctly.
 
