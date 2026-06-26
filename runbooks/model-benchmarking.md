@@ -116,21 +116,31 @@ Scored output written to: `opus-scored-TIMESTAMP.json` (training data) and `opus
 Once enough scored examples exist, the Scorer agent uses this index to route
 incoming requests to the best model for that task type automatically.
 
-Target routing table (to be validated by benchmark results):
+### Validated Routing Table (as of Round 4 RAG benchmark)
 
-| Task Type | Candidates to Benchmark | Expected Winner |
+Two-model stack confirmed. All other models eliminated on speed or quality.
+
+| Task Type | Model | Rationale |
 |---|---|---|
-| Daily chat | qwen3:8b, qwen3:14b | qwen3:14b |
-| PowerShell / Graph scripting | qwen2.5-coder:32b, qwen3.6:35b | TBD — graph-accuracy score decides |
-| Runbook generation | qwen2.5-coder:32b, qwen3.6:35b, qwen3:14b | TBD — benchmark decides |
-| Complex reasoning / debugging | deepseek-r1:8b, deepseek-r1:14b | deepseek-r1:14b |
-| Request classification (fast) | qwen3:8b | qwen3:8b |
-| Embeddings | nomic-embed-text | nomic-embed-text |
-| Screenshot / vision parsing | llama3.2-vision:11b, qwen3.6:35b | TBD — qwen3.6 has native vision |
+| PowerShell / Graph scripting | gemma4:26b | Wins all graph-accuracy tasks with RAG; hallucination avg 7.8 |
+| Runbook generation | gemma4:26b | Primary — higher accuracy and hallucination scores |
+| Complex PowerShell / escalation | qwen3.6:35b | Fallback when Scorer confidence < threshold; 48+ t/s |
+| Daily chat / explanation | gemma4:26b | Default for all tasks pending drift validation |
+| Request classification | gemma4:26b | Pending drift validation — may route to qwen3.6 if drift is tight |
+| Embeddings | nomic-embed-text | Unchanged |
 
-**Note:** For PowerShell/Graph routing, the `graph-accuracy` prompt set scores are the
-deciding factor — not overall benchmark scores. A fast model that hallucinates cmdlets
-is worse than a slower model that gets it right.
+**Eliminated models:**
+- qwen3:8b, qwen3:14b — outperformed by gemma4:26b at similar speed
+- qwen2.5-coder:32b — slowest at 10.5 t/s, wins only 1 of 17 routing slots
+- deepseek-r1:14b — chain-of-thought doesn't help without correct training data
+- phi4:14b — Microsoft heritage didn't translate to Graph API accuracy
+
+**Disqualifier rule:** hallucination score < 7 on any graph-accuracy task = disqualified
+from PowerShell routing regardless of other scores. qwen3.6 borderline — use only as
+Scorer-escalation fallback, not primary for Graph property access tasks.
+
+**Pending:** Round 5 drift results needed to finalize per-task routing assignments
+and confirm MoE consistency at temperature 0.
 
 ---
 

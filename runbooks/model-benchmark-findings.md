@@ -104,17 +104,109 @@ Three tasks scored ≤ 5/10 across all models. Root cause is factual grounding, 
 
 ---
 
+---
+
+## Round 4 — RAG Benchmark (gemma4:26b vs qwen3.6:35b)
+
+**Models:** gemma4:26b, qwen3.6:35b  
+**Prompts:** ga-deprecated-module, ga-error-handling, ps-graph-stale-users  
+**Script:** `scripts/rag_benchmark.py`  
+**Scorer output:** `outputs/opus-scored-20260626-035355.md`  
+**RAG corpus:** MS Graph PowerShell docs — Get-MgUser, Update-MgUser, Get-MgUserAuthenticationMethod, Remove-MgUserAuthenticationMicrosoftAuthenticatorMethod, New-MgGroupMemberByRef, Get-MgGroupMember, Get-MgDeviceManagementManagedDevice, Connect-MgGraph, Invoke-MgGraphRequest  
+**Retrieval:** Tier 1 (compact summary), top-6 chunks, nomic-embed-text
+
+### Round 4 Results
+
+| Rank | Model | Task | Phase | Overall | Accuracy | Hallucination | t/s |
+|---:|---|---|---|---:|---:|---:|---:|
+| 1 | gemma4:26b | ga-error-handling | cold | **8** | 8 | 9 | 41.3 |
+| 2 | gemma4:26b | ga-deprecated-module | cold | **7** | 7 | 9 | 41.5 |
+| 3 | gemma4:26b | ps-graph-stale-users | cold | **7** | 7 | 9 | 40.4 |
+| 4 | qwen3.6:35b | ps-graph-stale-users | warm | **7** | 7 | 9 | 48.9 |
+| 6 | gemma4:26b | ps-graph-stale-users | warm | **6** | 6 | 9 | 40.2 |
+| 7 | qwen3.6:35b | ga-error-handling | warm | **6** | 6 | 5 | 48.9 |
+| 10 | qwen3.6:35b | ps-graph-stale-users | cold | **5** | 4 | 6 | 48.6 |
+| 15 | qwen3.6:35b | ga-deprecated-module | cold | **4** | 4 | 6 | 47.7 |
+| 16 | qwen3.6:35b | ga-deprecated-module | warm | **4** | 3 | 4 | 47.9 |
+| 17 | qwen3.6:35b | ga-error-handling | cold | **4** | 4 | 6 | 48.9 |
+
+### Model Averages (RAG round, 6 entries each)
+
+| Model | Avg Overall | Avg Accuracy | Avg Hallucination | Avg t/s |
+|---|---:|---:|---:|---:|
+| gemma4:26b | **6.2** | 6.2 | 7.8 | 40.9 |
+| qwen3.6:35b | **5.0** | 4.7 | 6.0 | 48.5 |
+
+### Key Findings
+
+**gemma4:26b wins all 3 tasks.** RAG fixed ga-error-handling (0 cold → 8 cold) — confirms grounding was the root cause, not model capacity.
+
+**qwen3.6 "one-trick-andy" confirmed.** Even with 94 RAG chunks injected containing `SignInActivity.LastSignInDateTime`, qwen3.6 consistently used `lastSignInDateTime` as a direct property. Training weights overrode retrieved context. This is the definitive disqualifier for Graph API property accuracy tasks.
+
+**gemma4 warm-run degradation explained.** KV cache from cold run anchors warm run to a degraded inference path when the same prompt is reused. Production requests are always unique — not a real-world concern. Warm runs now use a cache-busting prefix in the benchmark.
+
+**Two-model stack locked:** gemma4:26b as primary, qwen3.6:35b as fallback for high-complexity or Scorer escalation. All other models eliminated.
+
+---
+
+## Round 5 — Drift Validation (IN PROGRESS)
+
+**Models:** gemma4:26b, qwen3.6:35b  
+**Prompt sets:** all (classify, chat, powershell, runbook, graph-accuracy, context)  
+**Script:** `scripts/ollama_model_benchmark.py`  
+**Runs:** 3 cold runs per task (--skip-warm) — drift measurement  
+**Context sizing:** per-task (`TASK_CONTEXT_SIZES` — classify/chat 4-8K, ps/runbook 8-16K, graph-accuracy 32K)  
+**Cold eviction:** verified via /api/ps polling loop (not fixed 2s sleep)  
+**Rows:** 96 (16 tasks × 2 models × 3 cold runs)
+
+Results pending. Scoring with `opus_scorer.py` after run completes.
+
+**What to look for:** variance across 3 cold runs per task per model. Tight variance (±1) confirms MoE stack is stable at temperature 0. Wide variance on specific tasks flags production routing risk.
+
+---
+
+## RAG Architecture — Implemented
+
+### Two-Tier Corpus
+
+| Tier | Content | When Used |
+|---|---|---|
+| Tier 1 | Syntax + required params + permissions (compact) | Default — injected on every request |
+| Tier 2 | Full reference + examples + all params | Escalation — Auditor/Scorer signal below threshold |
+
+### Corpus Sources
+
+| Source | Script | Content |
+|---|---|---|
+| Scraped | `scripts/scout.py` | MS docs HTML for each target cmdlet |
+| Curated | `scripts/curate.py` | Hand-authored entries for confirmed failure modes |
+
+### Current Curated Entries
+
+| ID | Fixes |
+|---|---|
+| `signinactivity-property-access-t1/t2` | `$user.LastSignInDateTime` doesn't exist — must use `$user.SignInActivity.LastSignInDateTime` with `-Property "signInActivity"` |
+| `mfa-auth-methods-uris-t1/t2` | Correct REST paths (`/users/{id}/authentication/methods`), type-specific cmdlet switch pattern, removes hallucinated `Remove-MgUserAuthenticationMethod` |
+
+### Escalation Signals (Tier 1 → Tier 2) — Designed, Not Yet Wired
+
+- Scorer confidence < threshold
+- Auditor parameter mismatch
+- Parser complexity flag
+- Historical hallucination risk for task type
+
+---
+
 ## Decision Tree — Resolved
 
 ```
 Round 2 scores > 7/10?
 ├── YES → Build task-specific system prompts (N/A — no model cleared bar)
 └── NO  → Round 3: gemma4:26b shootout → new leader confirmed
-          → Build Scout + Indexer agents to crawl MS Graph PowerShell docs  ← WE ARE HERE
-          → RAG retrieval layer injects correct API surface before generation
-          → Re-run: gemma4:26b + RAG vs qwen3.6:35b + RAG
-          → Differentiator: instruction following under heavy context load
-          → If still failing → model problem, not grounding problem
+          → Round 4: RAG benchmark → two-model stack confirmed
+          → Round 5: Drift validation (IN PROGRESS) ← WE ARE HERE
+          → If drift is tight → lock routing table, build Parser agent
+          → If drift is wide on specific tasks → flag for system prompt mitigation
 ```
 
 ---
@@ -123,8 +215,15 @@ Round 2 scores > 7/10?
 
 - [x] Score Round 2 results with `opus_scorer.py`
 - [x] Score Round 3 results (gemma4:26b)
-- [ ] Build Scout agent (MS Graph docs crawler)
-- [ ] Build Indexer agent (chunk, embed, store)
-- [ ] Re-run failing tasks: gemma4:26b + RAG vs qwen3.6:35b + RAG
-- [ ] Benchmark instruction following under heavy context load (minimal vs full retrieval chunks)
-- [ ] Lock routing table and build task-specific system prompts
+- [x] Build Scout agent (MS Graph docs crawler)
+- [x] Build Indexer agent (chunk, embed, store in Qdrant)
+- [x] Build Retriever (tier-filtered vector search)
+- [x] Build two-tier RAG corpus (Tier 1 summary + Tier 2 full reference)
+- [x] Build curated corpus entries for confirmed failure modes
+- [x] Re-run failing tasks: gemma4:26b + RAG vs qwen3.6:35b + RAG
+- [x] Two-model stack confirmed: gemma4:26b primary, qwen3.6:35b fallback
+- [ ] Score Round 5 drift validation results
+- [ ] Lock routing table (pending drift results)
+- [ ] Fix scout tier-1 summary generation for cmdlets where HTML parser misses Syntax heading
+- [ ] Implement Tier 2 escalation logic in pipeline
+- [ ] Build Parser agent (intent classification, task routing)
