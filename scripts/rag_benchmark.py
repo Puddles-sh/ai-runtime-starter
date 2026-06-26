@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import secrets
 import subprocess
 import sys
 import time
@@ -50,7 +51,7 @@ DEFAULT_MODELS = [
 EMBED_MODEL = "nomic-embed-text"
 DEFAULT_COLLECTION = "graph-ps"
 MAX_EMBED_CHARS = 6000
-TOP_K = 4  # retrieve top-4 chunks per task
+TOP_K = 6  # retrieve top-6 tier-1 chunks; collection now includes curated entries
 
 # The 3 failing tasks — identical to graph_api_shootout.py for direct comparison.
 FAILING_TASKS: list[tuple[str, str]] = [
@@ -149,9 +150,6 @@ def search(qdrant_url: str, collection: str, vector: list[float], top_k: int, ti
 
 def retrieve_context(query: str, ollama_url: str, qdrant_url: str, collection: str, tier: int = 1) -> str:
     vector = embed(ollama_url, query)
-    payload: dict[str, Any] = {"vector": vector, "limit": TOP_K, "with_payload": True}
-    if tier is not None:
-        payload["filter"] = {"must": [{"key": "tier", "match": {"value": tier}}]}
     results = search(qdrant_url, collection, vector, TOP_K, tier=tier)
     if not results:
         return ""
@@ -167,13 +165,24 @@ def retrieve_context(query: str, ollama_url: str, qdrant_url: str, collection: s
 
 # --- Ollama generation ---
 
-def stop_model(ollama_url: str, model: str) -> None:
+def stop_model(ollama_url: str, model: str, max_wait: int = 30) -> None:
     try:
         _post(f"{ollama_url}/api/generate", {"model": model, "keep_alive": 0, "prompt": ""})
     except RuntimeError:
         pass
     subprocess.run(["ollama", "stop", model], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    time.sleep(2)
+
+    deadline = time.monotonic() + max_wait
+    while time.monotonic() < deadline:
+        time.sleep(1)
+        try:
+            ps = _get(f"{ollama_url}/api/ps")
+            loaded = [m.get("name") or m.get("model") for m in ps.get("models", [])]
+            if model not in loaded:
+                return
+        except RuntimeError:
+            return
+    print(f"  WARNING: {model} still appears loaded after {max_wait}s — cold run may be inaccurate")
 
 
 def generate(ollama_url: str, model: str, prompt: str, keep_alive: str = "5m") -> dict[str, Any]:
@@ -286,7 +295,10 @@ Score results:
                     print(f"  cold  {tps:.1f} t/s  {cold.get('wall_seconds', 0):.1f}s")
 
                 if not args.skip_warm:
-                    warm = generate(args.host, model, augmented_prompt)
+                    # Cache-bust the warm run: same fix as ollama_model_benchmark.py.
+                    # RAG context is identical cold→warm so the prefix cache anchors without this.
+                    warm_prompt = f"[req:{secrets.token_hex(4)}]\n{augmented_prompt}"
+                    warm = generate(args.host, model, warm_prompt)
                     tps = tok_per_sec(warm)
                     raw_entry = {
                         "model": model,
