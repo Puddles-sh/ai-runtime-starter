@@ -49,14 +49,14 @@ TARGET_CMDLETS: list[tuple[str, str]] = [
     ("Update-MgUser", "microsoft.graph.users"),
     # ga-error-handling
     # Root cause: hallucinated MFA cmdlet names, missing 404/403 differentiation
-    # Note: Remove-MgUserAuthenticationMethod is not a real cmdlet — models hallucinate it.
-    # Real cmdlets are type-specific. Index them so models learn the correct surface area.
+    # Remove-MgUserAuthenticationMethod is NOT real — models hallucinate it.
+    # Real cmdlet is type-specific: Remove-MgUserAuthenticationMicrosoftAuthenticatorMethod
     ("Get-MgUserAuthenticationMethod", "microsoft.graph.identity.signins"),
-    ("Remove-MgUserAuthenticationEmailMethod", "microsoft.graph.identity.signins"),
     ("Remove-MgUserAuthenticationMicrosoftAuthenticatorMethod", "microsoft.graph.identity.signins"),
-    ("Remove-MgUserAuthenticationPhoneMethod", "microsoft.graph.identity.signins"),
-    # ga-param-names — New-MgGroupMemberByRef is the current SDK cmdlet for adding members
-    # Correct params: -GroupId and -DirectoryObjectId (not -MemberId or -UserId)
+    # ga-param-names — both cmdlets are valid, different call patterns:
+    # New-MgGroupMember:      -GroupId + -DirectoryObjectId (direct)
+    # New-MgGroupMemberByRef: -GroupId + -BodyParameter @{"@odata.id"=...} (ref)
+    ("New-MgGroupMember", "microsoft.graph.groups"),
     ("New-MgGroupMemberByRef", "microsoft.graph.groups"),
     ("Get-MgGroupMember", "microsoft.graph.groups"),
     # ga-pagination — device management with nextLink handling
