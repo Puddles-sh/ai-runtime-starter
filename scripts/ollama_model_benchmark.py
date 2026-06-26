@@ -145,8 +145,10 @@ PROMPT_SETS: dict[str, list[tuple[str, str]]] = {
             "ga-param-names",
             "Write a PowerShell script using Microsoft.Graph that adds a user to a group and then immediately "
             "verifies the membership was successful. "
-            "Use the correct parameter names: New-MgGroupMember requires -GroupId and -DirectoryObjectId. "
-            "Do NOT use -MemberId or -UserId — those are wrong parameter names for this cmdlet. "
+            "Use New-MgGroupMemberByRef (New-MgGroupMember has been removed from MS docs). "
+            "Correct call pattern: New-MgGroupMemberByRef -GroupId $groupId -BodyParameter @{'@odata.id' = "
+            "'https://graph.microsoft.com/v1.0/directoryObjects/' + $userId}. "
+            "Do NOT use New-MgGroupMember, -MemberId, -UserId, or -DirectoryObjectId — those are wrong. "
             "Include error handling that catches the specific Graph API error if the user is already a member.",
         ),
         (
@@ -248,7 +250,8 @@ GRAPH_ACCURACY_CHECKLIST = [
     "**Graph Accuracy Checklist** (for ga-* prompts):",
     "- AzureAD or MSOnline module used? → automatic Hallucination: FAIL",
     "- Correct cmdlet names? (Get-MgUser, New-MgGroupMember, Get-MgDeviceManagementManagedDevice)",
-    "- Correct parameter names? (-GroupId and -DirectoryObjectId on New-MgGroupMember, NOT -MemberId or -UserId)",
+    "- Correct cmdlet for group membership? (New-MgGroupMemberByRef, NOT New-MgGroupMember — removed from MS docs)",
+    "- Correct call pattern? (New-MgGroupMemberByRef -GroupId + -BodyParameter @odata.id, NOT -DirectoryObjectId)",
     "- Pagination handled? (-All flag or manual @odata.nextLink loop)",
     "- Graph permission scope declared and correct?",
     "- Error handling present and specific? (404 user-not-found vs 403 permission-denied distinguished)",
