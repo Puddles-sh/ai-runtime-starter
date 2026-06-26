@@ -82,12 +82,7 @@ PROMPT_SETS: dict[str, list[tuple[str, str]]] = {
             "that lists all Intune-managed Windows devices where the last sync is older than 7 days. "
             "Output: DeviceName, LastSyncDateTime, ComplianceState. Use -Select and -Filter where possible.",
         ),
-        (
-            "ps-graph-stale-users",
-            "Write a PowerShell script using Microsoft Graph that finds all Entra ID user accounts "
-            "that have not signed in for 90 days and are still enabled. "
-            "Export results to a CSV with columns: UPN, DisplayName, LastSignInDateTime, AccountEnabled.",
-        ),
+        # ps-graph-stale-users removed — covered in RAG benchmark (opus-scored-20260626).
         (
             "ps-graph-app-assignment",
             "Write a PowerShell function using Microsoft Graph that accepts an Intune app display name "
@@ -144,14 +139,9 @@ PROMPT_SETS: dict[str, list[tuple[str, str]]] = {
         ),
     ],
     "graph-accuracy": [
-        (
-            "ga-deprecated-module",
-            "Write a PowerShell script that finds all enabled Entra ID users who have not signed in for 60 days "
-            "and disables their accounts. "
-            "IMPORTANT: Use only the Microsoft.Graph PowerShell module. "
-            "Do NOT use the AzureAD module (deprecated) or MSOnline module (retired). "
-            "Use Get-MgUser with -Filter and -Property. Include the correct Graph permission scope required.",
-        ),
+        # ga-deprecated-module, ga-error-handling, ps-graph-stale-users removed —
+        # extensively covered in the RAG benchmark (opus-scored-20260626). Use
+        # rag_benchmark.py for those tasks going forward.
         (
             "ga-param-names",
             "Write a PowerShell script using Microsoft.Graph that adds a user to a group and then immediately "
@@ -171,15 +161,7 @@ PROMPT_SETS: dict[str, list[tuple[str, str]]] = {
             "Use Get-MgDeviceManagementManagedDevice with -All or implement manual pagination via Invoke-MgGraphRequest. "
             "Output total device count and export to CSV.",
         ),
-        (
-            "ga-error-handling",
-            "Write a PowerShell function using Microsoft.Graph that resets a user's MFA authentication methods "
-            "by removing all registered methods and returns a structured result object. "
-            "Include: try/catch around each Graph call, specific handling for 404 (user not found) and "
-            "403 (insufficient permissions), a revert log entry written before any destructive action, "
-            "and a return object with properties: Success (bool), UserId, MethodsRemoved (int), Error (string). "
-            "Do not use Write-Host — use Write-Verbose for progress and return the object.",
-        ),
+        # ga-error-handling removed — covered in RAG benchmark (opus-scored-20260626).
     ],
 }
 
