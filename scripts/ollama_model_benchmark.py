@@ -8,15 +8,25 @@ can be read and scored manually after a run.
 Results are written to disk after each prompt — safe to Ctrl-C and resume from
 the saved JSONL file.
 
-Overnight run example:
+Validated model stack — full run with drift measurement (3 cold runs, no warm):
+  python3 ollama_model_benchmark.py \\
+    gemma4:26b qwen3.6:35b \\
+    --host http://evo-x2.local:11434 \\
+    --prompt-set all --prompt-size all \\
+    --runs 3 --skip-warm
+
+Production simulation (1 cold + 1 warm, context-sized per task):
+  python3 ollama_model_benchmark.py \\
+    gemma4:26b qwen3.6:35b \\
+    --host http://evo-x2.local:11434 \\
+    --prompt-set all --prompt-size all
+
+Full overnight with thinking mode (original wide-field run):
   python3 ollama_model_benchmark.py \\
     qwen3:8b qwen3:14b deepseek-r1:14b qwen2.5-coder:32b qwen3.6:35b \\
     --host http://evo-x2.local:11434 \\
-    --prompt-set all \\
-    --prompt-size all \\
-    --runs 3 \\
-    --thinking \\
-    --concurrent 2
+    --prompt-set all --prompt-size all \\
+    --runs 3 --thinking --concurrent 2
 """
 
 from __future__ import annotations
@@ -246,6 +256,34 @@ CONTEXT_PROMPTS: dict[str, list[tuple[str, str]]] = {
     ],
 }
 
+# Context window per task type — sized to what production will actually inject.
+# Classify tasks: structured JSON output, tiny prompt, tiny output → 4096 is plenty.
+# Chat/runbook tasks: moderate output, no RAG injection → 8192-16384.
+# Graph accuracy tasks: complex PowerShell + future RAG context → 32768.
+# Anything not listed falls back to 16384.
+TASK_CONTEXT_SIZES: dict[str, int] = {
+    "clf-intent":                   4096,
+    "clf-risk":                     4096,
+    "clf-ambiguous":                4096,
+    "chat-explain":                 8192,
+    "chat-troubleshoot":            8192,
+    "chat-summarize":               4096,
+    "ps-graph-device-list":        16384,
+    "ps-graph-stale-users":        16384,
+    "ps-graph-app-assignment":     16384,
+    "runbook-offboard":            16384,
+    "runbook-cert-rotation":       16384,
+    "script-daily-health":          8192,
+    "ga-deprecated-module":        32768,
+    "ga-param-names":              32768,
+    "ga-pagination":               32768,
+    "ga-error-handling":           32768,
+    "ctx-short-ps":                 4096,
+    "ctx-medium-ps":                8192,
+    "ctx-long-ps":                 32768,
+    "default":                     16384,
+}
+
 GRAPH_ACCURACY_CHECKLIST = [
     "**Graph Accuracy Checklist** (for ga-* prompts):",
     "- AzureAD or MSOnline module used? → automatic Hallucination: FAIL",
@@ -290,20 +328,29 @@ def api_json(base_url: str, path: str, payload: dict[str, Any] | None = None) ->
         raise SystemExit(f"Could not reach Ollama at {base_url}: {exc.reason}") from exc
 
 
-def stop_model(base_url: str, model: str) -> None:
+def stop_model(base_url: str, model: str, max_wait: int = 30) -> None:
+    """Evict model from memory and block until confirmed unloaded.
+
+    Cold run accuracy depends on the model not being in memory at all.
+    The 2s sleep approach was unreliable — large models can take 5-10s to fully evict.
+    """
     try:
         api_json(base_url, "/api/generate", {"model": model, "keep_alive": 0, "prompt": ""})
     except SystemExit:
         pass
     subprocess.run(["ollama", "stop", model], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    time.sleep(2)
-    try:
-        ps = api_json(base_url, "/api/ps")
-        loaded = [m.get("name") or m.get("model") for m in ps.get("models", [])]
-        if model in loaded:
-            print(f"  WARNING: {model} still appears loaded after stop — cold run result may be inaccurate")
-    except SystemExit:
-        pass
+
+    deadline = time.monotonic() + max_wait
+    while time.monotonic() < deadline:
+        time.sleep(1)
+        try:
+            ps = api_json(base_url, "/api/ps")
+            loaded = [m.get("name") or m.get("model") for m in ps.get("models", [])]
+            if model not in loaded:
+                return
+        except SystemExit:
+            return
+    print(f"  WARNING: {model} still appears loaded after {max_wait}s — cold run result may be inaccurate")
 
 
 def generate_once(base_url: str, model: str, prompt: str, keep_alive: str, num_ctx: int = 32768) -> dict[str, Any]:
@@ -746,16 +793,18 @@ Overnight run example:
                     run_label = f"run {run_num}/{args.runs}"
                     print(f"Benchmarking {model} / {label} / {run_label} {'[thinking]' if args.thinking else ''}...")
 
+                    num_ctx = TASK_CONTEXT_SIZES.get(label, TASK_CONTEXT_SIZES["default"])
+
                     if not args.skip_cold:
                         stop_model(args.host, model)
-                        cold = generate_once(args.host, model, prompt, args.keep_alive)
+                        cold = generate_once(args.host, model, prompt, args.keep_alive, num_ctx=num_ctx)
                         runtime = get_model_runtime(args.host, model)
                         row = flatten_result(model, "cold", cold, runtime, label, run_num, args.thinking)
                         writer.write_result(row, model, label, base_prompt, "cold", run_num, args.thinking, cold, runtime)
                         total_rows += 1
 
                     if not args.skip_warm:
-                        warm = generate_once(args.host, model, prompt, args.keep_alive)
+                        warm = generate_once(args.host, model, prompt, args.keep_alive, num_ctx=num_ctx)
                         runtime = get_model_runtime(args.host, model)
                         row = flatten_result(model, "warm", warm, runtime, label, run_num, args.thinking)
                         writer.write_result(row, model, label, base_prompt, "warm", run_num, args.thinking, warm, runtime)
