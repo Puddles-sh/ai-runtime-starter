@@ -39,8 +39,11 @@ DEFAULT_COLLECTION = "graph-ps"
 VECTOR_SIZE = 768  # nomic-embed-text output dimension
 
 
+MAX_EMBED_CHARS = 6000  # nomic-embed-text context limit ~8192 tokens; 6000 chars is safe
+
+
 def ollama_embed(base_url: str, text: str) -> list[float]:
-    payload = {"model": EMBED_MODEL, "prompt": text}
+    payload = {"model": EMBED_MODEL, "prompt": text[:MAX_EMBED_CHARS]}
     body = json.dumps(payload).encode("utf-8")
     req = Request(
         f"{base_url.rstrip('/')}/api/embeddings",
