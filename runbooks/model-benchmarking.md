@@ -116,31 +116,35 @@ Scored output written to: `opus-scored-TIMESTAMP.json` (training data) and `opus
 Once enough scored examples exist, the Scorer agent uses this index to route
 incoming requests to the best model for that task type automatically.
 
-### Validated Routing Table (as of Round 4 RAG benchmark)
+### Validated Routing Table (as of Round 5 — FINAL)
 
-Two-model stack confirmed. All other models eliminated on speed or quality.
+Three-model stack confirmed. All other models eliminated on speed or quality.
 
 | Task Type | Model | Rationale |
 |---|---|---|
-| PowerShell / Graph scripting | gemma4:26b | Wins all graph-accuracy tasks with RAG; hallucination avg 7.8 |
-| Runbook generation | gemma4:26b | Primary — higher accuracy and hallucination scores |
-| Complex PowerShell / escalation | qwen3.6:35b | Fallback when Scorer confidence < threshold; 48+ t/s |
-| Daily chat / explanation | gemma4:26b | Default for all tasks pending drift validation |
-| Request classification | gemma4:26b | Pending drift validation — may route to qwen3.6 if drift is tight |
+| Interactive chat | qwen3:8b | 8-16s vs 40-120s; quality is sufficient for conversational use |
+| Quality chat / async | gemma4:26b | 10/10 quality; use where latency is not the constraint |
+| Vision / screenshot parsing | gemma4:26b | Multimodal — parse error screenshots, support tickets |
+| clf-intent, clf-ambiguous | gemma4:26b | Perfect score, zero drift |
+| clf-risk | qwen3.6:35b | Wins this specific task, 10/10 |
+| PowerShell / Graph scripting | gemma4:26b + RAG | ±2-4 drift without RAG; RAG mandatory for production |
+| Runbook generation | gemma4:26b | 9/10, stable |
+| script-daily-health | qwen3.6:35b | Wins cleanly, 9/10 zero drift |
+| Graph accuracy tasks | gemma4:26b + RAG + curated corpus | Curated entries cover confirmed failure modes |
+| ctx-short/medium-ps | gemma4:26b | qwen3.6 shows ±5 variance on ctx tasks — disqualified |
+| Escalation / confidence fallback | qwen3.6:35b | When Scorer confidence < threshold |
 | Embeddings | nomic-embed-text | Unchanged |
 
 **Eliminated models:**
-- qwen3:8b, qwen3:14b — outperformed by gemma4:26b at similar speed
+- qwen3:14b — outperformed by gemma4:26b at similar speed
 - qwen2.5-coder:32b — slowest at 10.5 t/s, wins only 1 of 17 routing slots
 - deepseek-r1:14b — chain-of-thought doesn't help without correct training data
 - phi4:14b — Microsoft heritage didn't translate to Graph API accuracy
 
-**Disqualifier rule:** hallucination score < 7 on any graph-accuracy task = disqualified
-from PowerShell routing regardless of other scores. qwen3.6 borderline — use only as
-Scorer-escalation fallback, not primary for Graph property access tasks.
-
-**Pending:** Round 5 drift results needed to finalize per-task routing assignments
-and confirm MoE consistency at temperature 0.
+**Disqualifier rules:**
+- Hallucination score < 7 on any graph-accuracy task = disqualified from PowerShell routing
+- qwen3.6 ctx-short-ps ±5 drift = disqualified from context tasks; route to gemma4
+- qwen3.6 overrides retrieved context on Graph property access (training weights win) — use gemma4 as primary
 
 ---
 

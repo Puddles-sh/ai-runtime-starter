@@ -97,6 +97,41 @@ Tasks are allocated context windows sized to what they actually need:
 
 ---
 
+## Utilities
+
+### `graph_api_shootout.py`
+Targeted benchmark for the 3 historically-failing Graph API tasks (ga-deprecated-module,
+ga-error-handling, ps-graph-stale-users). Used in Rounds 2 and 3 to compare challenger
+models against qwen3.6:35b control without running the full prompt suite.
+
+```bash
+python3 scripts/graph_api_shootout.py gemma4:26b qwen3.6:35b
+```
+
+### `prepare_scoring.py`
+Merges a responses markdown file and a metrics JSONL into a single scorable raw JSONL.
+Only needed for benchmark runs from before `ollama_model_benchmark.py` started writing
+`ollama-raw-*.jsonl` automatically. New runs don't need this.
+
+```bash
+python3 scripts/prepare_scoring.py \
+  --responses outputs/benchmark-results/ollama-responses-<timestamp>.md \
+  --metrics   outputs/benchmark-results/ollama-benchmark-<timestamp>.jsonl \
+  --output    outputs/benchmark-results/ollama-raw-<timestamp>.jsonl
+```
+
+### `rocm_stability_test.py`
+ROCm stability diagnostic — confirms XNACK setting is the crash culprit, not
+OLLAMA_MAX_LOADED_MODELS. Runs two models concurrently with long-generation prompts that
+previously triggered "ROCm error: unspecified launch failure". Run once after any driver
+update or kernel change.
+
+```bash
+python3 scripts/rocm_stability_test.py
+```
+
+---
+
 ## Known Issues
 
 - **Tier 1 scraping yield is low**: `scout.py` generates Tier 1 summaries only when it

@@ -149,19 +149,61 @@ Three tasks scored ≤ 5/10 across all models. Root cause is factual grounding, 
 
 ---
 
-## Round 5 — Drift Validation (IN PROGRESS)
+## Round 5 — Drift Validation (COMPLETE)
 
 **Models:** gemma4:26b, qwen3.6:35b  
 **Prompt sets:** all (classify, chat, powershell, runbook, graph-accuracy, context)  
 **Script:** `scripts/ollama_model_benchmark.py`  
+**Scorer output:** `outputs/benchmark-results/opus-scored-20260626-161123.md`  
 **Runs:** 3 cold runs per task (--skip-warm) — drift measurement  
 **Context sizing:** per-task (`TASK_CONTEXT_SIZES` — classify/chat 4-8K, ps/runbook 8-16K, graph-accuracy 32K)  
 **Cold eviction:** verified via /api/ps polling loop (not fixed 2s sleep)  
 **Rows:** 96 (16 tasks × 2 models × 3 cold runs)
 
-Results pending. Scoring with `opus_scorer.py` after run completes.
+### Round 5 Model Averages
 
-**What to look for:** variance across 3 cold runs per task per model. Tight variance (±1) confirms MoE stack is stable at temperature 0. Wide variance on specific tasks flags production routing risk.
+| Model | Avg Overall | Avg Accuracy | Avg Hallucination | Avg t/s |
+|---|---:|---:|---:|---:|
+| gemma4:26b | **8.3** | 8.3 | 9.1 | 47.3 |
+| qwen3.6:35b | 7.9 | 7.7 | 8.2 | 53.0 |
+
+### Drift Summary — Score Variance Across 3 Cold Runs
+
+| Task | gemma4 drift | qwen3.6 drift | RAG required |
+|---|:---:|:---:|---|
+| chat-explain | ±1 | 0 | No |
+| chat-troubleshoot | 0 | ±1 | No |
+| chat-summarize | ±1 | 0 | No |
+| clf-intent | 0 | 0 | No |
+| clf-risk | 0 | ±1 | No |
+| clf-ambiguous | ±1 | ±2 | No |
+| runbook-offboard | 0 | 0 | No |
+| runbook-cert-rotation | ±2 | ±2 | Monitor |
+| script-daily-health | ±1 | 0 | No |
+| ps-graph-device-list | ±2 | ±1 | Yes |
+| ps-graph-app-assignment | **±4** | ±2 | **Yes — mandatory** |
+| ga-param-names | ±2 | ±2 | Yes |
+| ga-pagination | ±3 | ±2 | Yes |
+| ctx-short-ps | ±1 | **±5** | No (gemma4 only) |
+| ctx-medium-ps | ±1 | ±2 | No |
+| ctx-long-ps | ±1 | 0 | Both low — RAG helps |
+
+### Final Routing Table (Three-Model Stack)
+
+| Task Type | Model | Rationale |
+|---|---|---|
+| Interactive chat | qwen3:8b | 8-16s wall time vs 40-120s for gemma4 |
+| Quality chat | gemma4:26b | 10/10 quality, verbose — async use |
+| Vision / screenshot parsing | gemma4:26b | Multimodal intake for support tickets |
+| clf-intent, clf-ambiguous | gemma4:26b | Perfect score, stable |
+| clf-risk | qwen3.6:35b | Wins this task, 10/10 |
+| PowerShell + Graph API | gemma4:26b + RAG | ±2-4 drift without RAG |
+| Runbooks | gemma4:26b | 9/10, stable |
+| script-daily-health | qwen3.6:35b | Wins this task, 9/10 zero drift |
+| Graph accuracy tasks | gemma4:26b + RAG + curated corpus | Dedicated RAG mandatory |
+| Escalation fallback | qwen3.6:35b | When Scorer confidence < threshold |
+
+**Disqualifier confirmed:** qwen3.6 ctx-short-ps ±5 variance disqualifies it from context tasks. Route to gemma4.
 
 ---
 
@@ -197,21 +239,7 @@ Results pending. Scoring with `opus_scorer.py` after run completes.
 
 ---
 
-## Decision Tree — Resolved
-
-```
-Round 2 scores > 7/10?
-├── YES → Build task-specific system prompts (N/A — no model cleared bar)
-└── NO  → Round 3: gemma4:26b shootout → new leader confirmed
-          → Round 4: RAG benchmark → two-model stack confirmed
-          → Round 5: Drift validation (IN PROGRESS) ← WE ARE HERE
-          → If drift is tight → lock routing table, build Parser agent
-          → If drift is wide on specific tasks → flag for system prompt mitigation
-```
-
----
-
-## Next Steps
+## Next Steps — Phase 4
 
 - [x] Score Round 2 results with `opus_scorer.py`
 - [x] Score Round 3 results (gemma4:26b)
@@ -221,9 +249,10 @@ Round 2 scores > 7/10?
 - [x] Build two-tier RAG corpus (Tier 1 summary + Tier 2 full reference)
 - [x] Build curated corpus entries for confirmed failure modes
 - [x] Re-run failing tasks: gemma4:26b + RAG vs qwen3.6:35b + RAG
-- [x] Two-model stack confirmed: gemma4:26b primary, qwen3.6:35b fallback
-- [ ] Score Round 5 drift validation results
-- [ ] Lock routing table (pending drift results)
-- [ ] Fix scout tier-1 summary generation for cmdlets where HTML parser misses Syntax heading
-- [ ] Implement Tier 2 escalation logic in pipeline
-- [ ] Build Parser agent (intent classification, task routing)
+- [x] Two-model stack locked: gemma4:26b primary, qwen3.6:35b fallback
+- [x] Round 5 drift validation complete — routing table finalized
+- [x] Three-model stack confirmed: qwen3:8b chat fast lane added
+- [ ] Fix scout tier-1 summary generation (HTML parser misses Syntax headings on most cmdlets)
+- [ ] Implement Tier 2 escalation logic in pipeline (retriever supports it, pipeline doesn't yet)
+- [ ] Task-specific system prompts (Phase 4)
+- [ ] Build Parser agent — intent classification and task routing (Phase 5)
