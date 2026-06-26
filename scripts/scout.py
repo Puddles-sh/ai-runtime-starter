@@ -53,10 +53,8 @@ TARGET_CMDLETS: list[tuple[str, str]] = [
     # Real cmdlet is type-specific: Remove-MgUserAuthenticationMicrosoftAuthenticatorMethod
     ("Get-MgUserAuthenticationMethod", "microsoft.graph.identity.signins"),
     ("Remove-MgUserAuthenticationMicrosoftAuthenticatorMethod", "microsoft.graph.identity.signins"),
-    # ga-param-names — both cmdlets are valid, different call patterns:
-    # New-MgGroupMember:      -GroupId + -DirectoryObjectId (direct)
-    # New-MgGroupMemberByRef: -GroupId + -BodyParameter @{"@odata.id"=...} (ref)
-    ("New-MgGroupMember", "microsoft.graph.groups"),
+    # ga-param-names — New-MgGroupMember removed from MS docs; use New-MgGroupMemberByRef
+    # Correct call: -GroupId + -BodyParameter @{"@odata.id"="https://graph.microsoft.com/v1.0/directoryObjects/{id}"}
     ("New-MgGroupMemberByRef", "microsoft.graph.groups"),
     ("Get-MgGroupMember", "microsoft.graph.groups"),
     # ga-pagination — device management with nextLink handling
