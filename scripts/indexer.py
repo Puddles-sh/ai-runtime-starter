@@ -196,6 +196,7 @@ Then index:
                 "cmdlet": cmdlet,
                 "module": chunk.get("module", ""),
                 "chunk_type": chunk_type,
+                "tier": chunk.get("tier", 2),
                 "content": content,
                 "source_url": chunk.get("source_url", ""),
             })
