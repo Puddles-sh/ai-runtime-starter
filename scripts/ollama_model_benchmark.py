@@ -35,6 +35,7 @@ import argparse
 import concurrent.futures
 import csv
 import json
+import secrets
 import statistics
 import subprocess
 import sys
@@ -804,7 +805,11 @@ Overnight run example:
                         total_rows += 1
 
                     if not args.skip_warm:
-                        warm = generate_once(args.host, model, prompt, args.keep_alive, num_ctx=num_ctx)
+                        # Bust the prompt prefix cache so the warm run reflects production conditions
+                        # (unique request content) rather than cache anchoring from the cold run.
+                        # In production every request has different content — this replicates that.
+                        warm_prompt = f"[req:{secrets.token_hex(4)}]\n{prompt}"
+                        warm = generate_once(args.host, model, warm_prompt, args.keep_alive, num_ctx=num_ctx)
                         runtime = get_model_runtime(args.host, model)
                         row = flatten_result(model, "warm", warm, runtime, label, run_num, args.thinking)
                         writer.write_result(row, model, label, base_prompt, "warm", run_num, args.thinking, warm, runtime)
