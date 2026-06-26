@@ -140,20 +140,23 @@ def embed(ollama_url: str, text: str) -> list[float]:
     return data["embedding"]
 
 
-def search(qdrant_url: str, collection: str, vector: list[float], top_k: int) -> list[dict[str, Any]]:
-    data = _post(
-        f"{qdrant_url}/collections/{collection}/points/search",
-        {"vector": vector, "limit": top_k, "with_payload": True},
-    )
+def search(qdrant_url: str, collection: str, vector: list[float], top_k: int, tier: int = 1) -> list[dict[str, Any]]:
+    payload: dict[str, Any] = {"vector": vector, "limit": top_k, "with_payload": True}
+    payload["filter"] = {"must": [{"key": "tier", "match": {"value": tier}}]}
+    data = _post(f"{qdrant_url}/collections/{collection}/points/search", payload)
     return data.get("result", [])
 
 
-def retrieve_context(query: str, ollama_url: str, qdrant_url: str, collection: str) -> str:
+def retrieve_context(query: str, ollama_url: str, qdrant_url: str, collection: str, tier: int = 1) -> str:
     vector = embed(ollama_url, query)
-    results = search(qdrant_url, collection, vector, TOP_K)
+    payload: dict[str, Any] = {"vector": vector, "limit": TOP_K, "with_payload": True}
+    if tier is not None:
+        payload["filter"] = {"must": [{"key": "tier", "match": {"value": tier}}]}
+    results = search(qdrant_url, collection, vector, TOP_K, tier=tier)
     if not results:
         return ""
-    lines = ["## Microsoft Graph PowerShell Reference\n"]
+    tier_label = f"Tier {tier} ({'summary' if tier == 1 else 'full reference'})"
+    lines = [f"## Microsoft Graph PowerShell Reference ({tier_label})\n"]
     for r in results:
         p = r.get("payload", {})
         lines.append(f"### {p.get('cmdlet', '')} ({p.get('chunk_type', '')})\n")

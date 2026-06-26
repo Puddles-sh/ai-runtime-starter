@@ -148,6 +148,41 @@ def classify_section(heading: str) -> str:
     return "reference"
 
 
+def build_tier1_summary(
+    cmdlet: str,
+    module: str,
+    sections: list[tuple[str, str]],
+    source_url: str,
+) -> dict | None:
+    """Compact Tier 1 chunk: syntax + required parameters + permissions only.
+
+    This is what gets injected into the prompt by default. Tier 2 (full reference)
+    is only pulled on escalation signal from Auditor or Scorer.
+    """
+    parts: list[str] = []
+    for heading, text in sections:
+        h = heading.lower()
+        if "syntax" in h:
+            parts.append(f"### {heading}\n{text}")
+        elif heading.startswith("-") and "required: true" in text.lower():
+            parts.append(f"### {heading} [Required]\n{text}")
+        elif any(k in h for k in ("permission", "scope", "privilege", "role")):
+            parts.append(f"### {heading}\n{text}")
+
+    if not parts:
+        return None
+
+    return {
+        "id": f"{cmdlet.lower()}-summary-t1",
+        "cmdlet": cmdlet,
+        "module": module,
+        "chunk_type": "summary",
+        "tier": 1,
+        "content": f"# {cmdlet} — Quick Reference\n\n" + "\n\n".join(parts),
+        "source_url": source_url,
+    }
+
+
 def build_chunks(
     cmdlet: str,
     module: str,
@@ -171,12 +206,19 @@ def build_chunks(
     chunks = []
     base = cmdlet.lower()
 
+    # Tier 1 summary — injected by default, low token cost
+    summary = build_tier1_summary(cmdlet, module, sections, source_url)
+    if summary:
+        chunks.append(summary)
+
+    # Tier 2 full chunks — pulled on escalation signal only
     if reference:
         chunks.append({
             "id": f"{base}-reference",
             "cmdlet": cmdlet,
             "module": module,
             "chunk_type": "reference",
+            "tier": 2,
             "content": f"# {cmdlet} ({module})\n\n" + "\n\n".join(reference),
             "source_url": source_url,
         })
@@ -186,6 +228,7 @@ def build_chunks(
             "cmdlet": cmdlet,
             "module": module,
             "chunk_type": "examples",
+            "tier": 2,
             "content": f"# {cmdlet} — Examples\n\n" + "\n\n".join(examples),
             "source_url": source_url,
         })
@@ -195,6 +238,7 @@ def build_chunks(
             "cmdlet": cmdlet,
             "module": module,
             "chunk_type": "permissions",
+            "tier": 2,
             "content": f"# {cmdlet} — Required Permissions\n\n" + "\n\n".join(permissions),
             "source_url": source_url,
         })

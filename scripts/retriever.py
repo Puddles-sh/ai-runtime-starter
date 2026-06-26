@@ -56,12 +56,15 @@ def qdrant_search(
     collection: str,
     vector: list[float],
     top_k: int,
+    tier: int | None = None,
 ) -> list[dict[str, Any]]:
-    payload = {
+    payload: dict[str, Any] = {
         "vector": vector,
         "limit": top_k,
         "with_payload": True,
     }
+    if tier is not None:
+        payload["filter"] = {"must": [{"key": "tier", "match": {"value": tier}}]}
     body = json.dumps(payload).encode("utf-8")
     req = Request(
         f"{base_url.rstrip('/')}/collections/{collection}/points/search",
@@ -85,13 +88,17 @@ def retrieve(
     qdrant_url: str = "http://localhost:6333",
     collection: str = DEFAULT_COLLECTION,
     top_k: int = DEFAULT_TOP_K,
+    tier: int = 1,
 ) -> list[dict[str, Any]]:
     """Embed query and return top-k matching chunks with scores.
 
-    Each result dict has: score, cmdlet, chunk_type, content, source_url
+    tier=1 (default): compact summary chunks — syntax, required params, permissions.
+    tier=2: full reference chunks — pulled on Auditor/Scorer escalation signal.
+
+    Each result dict has: score, cmdlet, chunk_type, tier, content, source_url
     """
     vector = ollama_embed(ollama_url, query)
-    results = qdrant_search(qdrant_url, collection, vector, top_k)
+    results = qdrant_search(qdrant_url, collection, vector, top_k, tier=tier)
 
     chunks = []
     for r in results:
@@ -100,6 +107,7 @@ def retrieve(
             "score": round(r.get("score", 0.0), 4),
             "cmdlet": payload.get("cmdlet", ""),
             "chunk_type": payload.get("chunk_type", ""),
+            "tier": payload.get("tier", 2),
             "content": payload.get("content", ""),
             "source_url": payload.get("source_url", ""),
         })
@@ -144,6 +152,7 @@ Examples:
     parser.add_argument("--qdrant", default="http://localhost:6333", metavar="URL")
     parser.add_argument("--collection", default=DEFAULT_COLLECTION)
     parser.add_argument("--top-k", type=int, default=DEFAULT_TOP_K)
+    parser.add_argument("--tier", type=int, default=1, choices=[1, 2], help="1=summary (default), 2=full reference")
     parser.add_argument("--json", action="store_true", dest="as_json", help="Output raw JSON instead of formatted context")
     args = parser.parse_args()
 
@@ -154,6 +163,7 @@ Examples:
             qdrant_url=args.qdrant,
             collection=args.collection,
             top_k=args.top_k,
+            tier=args.tier,
         )
     except RuntimeError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
