@@ -57,8 +57,9 @@ faiss/
 *.safetensors
 *.bin
 
-# Generated outputs
-outputs/
+# Generated outputs — track benchmark results, exclude large runtime outputs
+!outputs/
+outputs/tmp/
 reports/
 
 # Docker/runtime generated files

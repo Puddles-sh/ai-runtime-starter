@@ -1,0 +1,11 @@
+model,prompt,phase,run,thinking,wall_seconds,total_seconds,load_seconds,prompt_eval_count,prompt_eval_seconds,eval_count,eval_seconds,tokens_per_second,loaded_size_gib,loaded_vram_gib,processor,expires_at
+qwen3:14b,chat-explain,cold,1,False,16.905,16.901,1.827,41,0.127,343,14.944,22.95,13.55,13.55,['qwen3'],2026-06-25T16:40:05.640673111Z
+qwen3:14b,chat-explain,warm,1,False,14.472,14.467,0.127,41,0.044,327,14.278,22.9,13.55,13.55,['qwen3'],2026-06-25T16:40:20.11365093Z
+qwen3:14b,chat-troubleshoot,cold,1,False,30.765,30.76,1.835,46,0.129,655,28.793,22.75,13.55,13.55,['qwen3'],2026-06-25T16:40:52.944825421Z
+qwen3:14b,chat-troubleshoot,warm,1,False,26.44,26.435,0.122,46,0.045,597,26.242,22.75,13.55,13.55,['qwen3'],2026-06-25T16:41:19.386121815Z
+qwen3:14b,chat-summarize,cold,1,False,15.244,15.24,2.056,82,0.182,298,13.0,22.92,13.55,13.55,['qwen3'],2026-06-25T16:41:36.69486503Z
+qwen3:14b,chat-summarize,warm,1,False,14.015,14.012,0.127,82,0.044,316,13.823,22.86,13.55,13.55,['qwen3'],2026-06-25T16:41:50.711375037Z
+qwen3:14b,ps-graph-device-list,cold,1,False,216.733,216.716,2.062,65,0.162,4546,214.489,21.19,13.55,13.55,['qwen3'],2026-06-25T16:45:29.50957456Z
+qwen3:14b,ps-graph-device-list,warm,1,False,132.527,132.515,0.121,65,0.045,2882,132.211,21.8,13.55,13.55,['qwen3'],2026-06-25T16:47:42.03820266Z
+qwen3:14b,ps-graph-stale-users,cold,1,False,165.395,165.381,2.092,60,0.156,3514,163.131,21.54,13.55,13.55,['qwen3'],2026-06-25T16:50:29.497040967Z
+qwen3:14b,ps-graph-stale-users,warm,1,False,188.492,188.476,0.117,60,0.045,4018,188.202,21.35,13.55,13.55,['qwen3'],2026-06-25T16:53:37.989890322Z

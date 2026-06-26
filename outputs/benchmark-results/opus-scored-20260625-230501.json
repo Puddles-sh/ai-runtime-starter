@@ -1,0 +1,595 @@
+{
+  "scored": [
+    {
+      "model": "deepseek-r1:14b",
+      "prompt": "ga-deprecated-module",
+      "prompt_text": "Write a PowerShell script that finds all enabled Entra ID users who have not signed in for 60 days and disables their accounts. IMPORTANT: Use only the Microsoft.Graph PowerShell module. Do NOT use the AzureAD module (deprecated) or MSOnline module (retired). Use Get-MgUser with -Filter and -Property. Include the correct Graph permission scope required.",
+      "phase": "cold",
+      "run": 1,
+      "thinking": false,
+      "response_text": "Here's a PowerShell script that accomplishes this task using only the Microsoft.Graph PowerShell module:\n\n```powershell\n# Connect to Microsoft Graph\nConnect-MgGraph -Scopes \" openid profile Directory.AccessAsUser.All\"\n\n# Get all enabled users with lastSignInDateTime and isEnabled properties, and filter those who haven't signed in for 60 days\n$usersToDisable = Get-MgUser -All `\n    -Property userPrincipalName, displayName, isEnabled, lastSignInDateTime `\n    -Filter \"isEnabled eq true and lastSignInDateTime lt [datetime]((Get-Date).AddDays(-60))\" `\n    -PageSize 500\n\n# Disable each user account\nforeach ($user in $usersToDisable) {\n    try {\n        Set-MgUser -Id $user.id -IsEnabled $false\n        Write-Output \"Disabled user: $($user.displayName) ($user.userPrincipalName)\"\n    }\n    catch {\n        Write-Error \"Failed to disable user: $($user.displayName) ($user.userPrincipalName). Error: $_\"\n    }\n}\n```\n\n### Explanation:\n1. **Connect to Microsoft Graph**: The script starts by connecting to Microsoft Graph using the `Connect-MgGraph` cmdlet with the necessary scopes. The required scopes are:\n   - `openid`: For sign-in as user\n   - `profile`: For profile access\n   - `Directory.AccessAsUser.All`: To manage directory objects\n\n2. **Get Users**: The script retrieves all enabled users who have not signed in for 60 days using the `Get-MgUser` cmdlet with filtering and pagination:\n   - `isEnabled eq true`: Ensures we only get enabled user accounts\n   - `lastSignInDateTime lt [datetime]((Get-Date).AddDays(-60))`: Filters users who haven't signed in for 60 days\n   - `-All`: Enables pagination to retrieve all results\n   - `-PageSize 500`: Sets the page size to 500 to optimize performance\n\n3. **Disable Users**: The script iterates over each user and disables their account using `Set-MgUser`. Each operation is wrapped in a try-catch block to handle any potential errors.\n\n### Important Notes:\n- **Permissions**: Ensure that the Microsoft Entra ID application has the required permissions:\n  - **Delegated Permissions**:\n    - openid\n    - profile\n    - Directory.AccessAsUser.All\n  - These permissions must be granted in Azure Active Directory (Azure AD) for the app to access user data and manage accounts.\n  \n- **Error Handling**: The script includes basic error handling to catch any exceptions that occur during the account disabling process.\n\nThis script should be run with appropriate permissions, ideally as a service principal or application identity with the necessary Graph API permissions.",
+      "tokens_per_second": 22.1,
+      "wall_seconds": 46.653127514000516,
+      "eval_count": 932,
+      "scores": {
+        "accuracy": 2,
+        "completeness": 4,
+        "format": 6,
+        "hallucination_risk": 3,
+        "overall": 2,
+        "issues": [
+          "Property and parameter 'isEnabled' do not exist in Microsoft.Graph; the correct property is 'accountEnabled' and Set-MgUser uses '-AccountEnabled'",
+          "'lastSignInDateTime' is not a top-level property; it lives under 'signInActivity/lastSignInDateTime' and requires AuditLog.Read.All plus advanced query (ConsistencyLevel eventual)",
+          "Filter value uses an embedded PowerShell expression '[datetime]((Get-Date).AddDays(-60))' which is invalid in a Graph OData -Filter; it must be a precomputed ISO 8601 string literal",
+          "Wrong permission scope: should be User.ReadWrite.All and AuditLog.Read.All, not Directory.AccessAsUser.All/openid/profile",
+          "Leading space in the -Scopes string ' openid profile...'",
+          "String interpolation '$user.userPrincipalName' will not expand the property; needs $($user.userPrincipalName)",
+          "Real query for sign-in activity needs -ConsistencyLevel eventual and -CountVariable, which are missing"
+        ],
+        "strengths": [
+          "Correctly avoids the deprecated AzureAD and retired MSOnline modules as instructed",
+          "Includes try/catch error handling and clean, readable structure"
+        ],
+        "verdict": "Fails because the core implementation uses non-existent properties/parameters (isEnabled), an invalid Graph filter, wrong sign-in activity handling, and incorrect permission scopes, making it unusable without a near-complete rewrite."
+      }
+    },
+    {
+      "model": "deepseek-r1:14b",
+      "prompt": "ga-deprecated-module",
+      "prompt_text": "Write a PowerShell script that finds all enabled Entra ID users who have not signed in for 60 days and disables their accounts. IMPORTANT: Use only the Microsoft.Graph PowerShell module. Do NOT use the AzureAD module (deprecated) or MSOnline module (retired). Use Get-MgUser with -Filter and -Property. Include the correct Graph permission scope required.",
+      "phase": "warm",
+      "run": 1,
+      "thinking": false,
+      "response_text": "Here's a PowerShell script that accomplishes the task using only the Microsoft.Graph module:\n\n```powershell\n# Connect to Microsoft Graph with required permissions\nConnect-MgGraph -Scopes \"User.ReadWrite.All\"\n\n# Pilot run to test filtering without making changes\nGet-MgUser -Filter \"isEnabled eq true\" `\n           -Property id, displayName, mail, signInActivity `\n| Where-Object { \n    $_.signInActivity.lastSignInDateTime -eq $null -or `\n    (New-TimeSpan -Start $_.signInActivity.lastSignInDateTime).Days -ge 60 \n} |\nFormat-Table id, displayName, mail, signInActivity\n\n# If the pilot run looks correct, uncomment and modify the following to disable users\n#Get-MgUser -Filter \"isEnabled eq true\" `\n#           -Property id, displayName, mail, signInActivity `\n#| Where-Object { \n#    $_.signInActivity.lastSignInDateTime -eq $null -or `\n#    (New-TimeSpan -Start $_.signInActivity.lastSignInDateTime).Days -ge 60 \n#} |\n#ForEach-Object {\n#    Write-Host \"Disabling user: $($PSItem.displayName) ($($PSItem.mail))\"\n#    Disable-MgUser -Id $PSItem.id -Confirm:$false\n#}\n\n# Optional: Log disabled users to a file or notify administrators\n```\n\n**Note:** \n- Replace `-Scopes` with the appropriate Microsoft Graph API permissions required (e.g., `Directory.ReadWrite.All`). \n- The script first runs in pilot mode to test filtering without making changes. Uncomment and modify the second section to actually disable accounts.\n- Always test thoroughly before running in production.",
+      "tokens_per_second": 22.04,
+      "wall_seconds": 34.96175490600217,
+      "eval_count": 766,
+      "scores": {
+        "accuracy": 3,
+        "completeness": 5,
+        "format": 7,
+        "hallucination_risk": 3,
+        "overall": 3,
+        "issues": [
+          "Disable-MgUser is not a real cmdlet in the Microsoft.Graph module; correct approach is Update-MgUser -UserId <id> -AccountEnabled:$false",
+          "Filter uses 'isEnabled eq true' but the correct Entra property is 'accountEnabled'",
+          "Filtering/reading signInActivity requires the AuditLog.Read.All scope, which is omitted (only User.ReadWrite.All given)",
+          "Querying signInActivity requires advanced query parameters (-ConsistencyLevel eventual and -CountVariable), which are missing and will cause the call to fail",
+          "The note suggesting to 'replace -Scopes' with Directory.ReadWrite.All is vague and contradicts the script"
+        ],
+        "strengths": [
+          "Correctly avoids the deprecated AzureAD and retired MSOnline modules",
+          "Includes a safe pilot/dry-run pattern before disabling accounts",
+          "Clean, paste-ready formatting with comments"
+        ],
+        "verdict": "Fails due to the fabricated Disable-MgUser cmdlet, an incorrect filter property (isEnabled vs accountEnabled), and a missing AuditLog.Read.All scope plus required advanced-query parameters, making the script non-functional as written."
+      }
+    },
+    {
+      "model": "deepseek-r1:14b",
+      "prompt": "ga-error-handling",
+      "prompt_text": "Write a PowerShell function using Microsoft.Graph that resets a user's MFA authentication methods by removing all registered methods and returns a structured result object. Include: try/catch around each Graph call, specific handling for 404 (user not found) and 403 (insufficient permissions), a revert log entry written before any destructive action, and a return object with properties: Success (bool), UserId, MethodsRemoved (int), Error (string). Do not use Write-Host \u2014 use Write-Verbose for progress and return the object.",
+      "phase": "cold",
+      "run": 1,
+      "thinking": false,
+      "response_text": "Here's a PowerShell function that meets your requirements:\n\n```powershell\nFunction Reset-MfaAuthenticationMethods ($userId) {\n    $result = [PSCustomObject]@{\n        Success      = $true\n        UserId       = $userId\n        MethodsRemoved = 0\n        Error        = \"\"\n    }\n\n    # Attempt to retrieve the user. Handle 404 and other exceptions.\n    Try {\n        Write-Verbose \"Checking if user '$userId' exists...\"\n        $user = Get-MgUser -Id $userId\n        If ($user -eq $null) {\n            $result.Success = $false\n            $result.Error = \"User not found.\"\n            return $result\n        }\n    } catch [Microsoft.Graph.ServiceException] {\n        If ($_.Exception.Response.StatusCode.ValueToString -eq \"404\") {\n            $result.Success = $false\n            $result.Error = \"User not found.\"\n            Write-Verbose \"Revert action: User does not exist.\"\n            return $result\n        }\n    } catch {\n        $result.Success = $false\n        $result.Error = $_.Exception.Message\n        Write-Verbose \"Revert action: An unexpected error occurred during user retrieval.\"\n        return $result\n    }\n\n    # Attempt to get authentication methods. Handle 403 and other exceptions.\n    Try {\n        Write-Verbose \"Retrieving authentication methods for user '$userId'...\"\n        $methods = Get-MgUserAuthenticationMethod -UserId $userId\n    } catch [Microsoft.Graph.ServiceException] {\n        If ($_.Exception.Response.StatusCode.ValueToString -eq \"403\") {\n            $result.Success = $false\n            $result.Error = \"Insufficient permissions to access authentication methods.\"\n            Write-Verbose \"Revert action: Insufficient permissions.\"\n            return $result\n        }\n        $result.Success = $false\n        $result.Error = $_.Exception.Message\n        Write-Verbose \"Revert action: An unexpected error occurred while retrieving authentication methods.\"\n        return $result\n    }\n\n    # If no methods exist, return with success.\n    If ($methods.Count -eq 0) {\n        $result.MethodsRemoved = 0\n        Write-Verbose \"No authentication methods found. Nothing to remove.\"\n        return $result\n    }\n\n    Write-Verbose \"Found $($methods.Count) authentication methods. Proceeding to remove them.\"\n\n    # Attempt to remove each method, handle exceptions for each.\n    Try {\n        ForEach ($method in $methods) {\n            Try {\n                Write-Verbose \"Attempting to remove authentication method '$($method.DisplayName)'...\"\n                Remove-MgUserAuthenticationMethod -InstanceId $method.InstanceId -UserId $userId\n                $result.MethodsRemoved++\n                Write-Verbose \"Successfully removed '$($method.DisplayName)'\"\n            } catch [Microsoft.Graph.ServiceException] {\n                If ($_.Exception.Response.StatusCode.ValueToString -eq \"403\") {\n                    $result.Success = $false\n                    $result.Error += \"Insufficient permissions to remove method '$($method.DisplayName)'. \"\n                } Else {\n                    $result.Success = $false\n                    $result.Error += $_.Exception.Message + \"; \"\n                }\n            } catch {\n                $result.Success = $false\n                $result.Error += $_.Exception.Message + \"; \"\n            }\n        }\n    } catch {\n        $result.Success = $false\n        $result.Error = $_.Exception.Message\n    }\n\n    return $result\n}\n```\n\n**Explanation:**\n\n1. **Error Handling and Verbose Logging**: The function uses `Write-Verbose` for progress logging, avoiding `Write-Host` as requested.\n\n2. **Try/Catch Blocks**: Each major operation (retrieving the user, methods, removing each method) is wrapped in try/catch blocks to handle exceptions gracefully.\n\n3. **404 Handling**: If the user isn't found, it returns an error with \"User not found.\"\n\n4. **403 Handling**: If permissions are insufficient during any step (like retrieving methods or removing them), it returns an appropriate error message.\n\n5. **Partial Success**: The function continues attempting to remove each method even if some fail, but marks the overall operation as unsuccessful if any errors occur.\n\n6. **Result Object**: Returns a structured result object with properties indicating success/failure, user ID, count of removed methods, and any error messages.\n\n**Example Usage:**\n\n```powershell\n# Replace 'user@domain.com' with the actual user ID.\n$result = Reset-MfaAuthenticationMethods -userId \"user@domain.com\"\nIf ($result.Success) {\n    Write-Output \"Successfully reset MFA for user '$($result.UserId)': $($result.MethodsRemoved) methods removed.\"\n} Else {\n    Write-Warning \"Failed to reset MFA: $($result.Error)\"\n}\n```\n\n**Notes:**\n\n- Ensure you're authenticated with Microsoft Graph before running the function using `Connect-MgGraph`.\n- The function attempts to remove all types of MFA methods (e.g., Email, SMS, Authenticator App).\n- If no MFA methods are found, it returns with zero methods removed.\n- Handles partial failures during method removals but considers the overall operation a failure if any errors occur.",
+      "tokens_per_second": 20.12,
+      "wall_seconds": 283.502747505001,
+      "eval_count": 5657,
+      "scores": {
+        "accuracy": 4,
+        "completeness": 5,
+        "format": 7,
+        "hallucination_risk": 4,
+        "overall": 4,
+        "issues": [
+          "Get-MgUser uses -UserId, not -Id",
+          "There is no generic Remove-MgUserAuthenticationMethod -InstanceId cmdlet; the Graph SDK requires type-specific cmdlets (Remove-MgUserAuthenticationPhoneMethod, Remove-MgUserAuthenticationMicrosoftAuthenticatorMethod, etc.) with type-specific Id parameters",
+          "Invented '.ValueToString' method on StatusCode; HttpStatusCode is an enum and should be compared as an int or enum value, not the string '404'",
+          "The required revert log entry is not actually written BEFORE the destructive action \u2014 'Revert action' messages only appear inside catch blocks",
+          "Missing [CmdletBinding()], so -Verbose will not reliably toggle Write-Verbose output",
+          "Exception type filter [Microsoft.Graph.ServiceException] may not match what the Graph PowerShell SDK actually throws",
+          "$methods.Count is unreliable when a single object is returned"
+        ],
+        "strengths": [
+          "Returns a properly structured result object with the exact requested properties",
+          "Uses Write-Verbose throughout and avoids Write-Host as instructed",
+          "Wraps each Graph call in try/catch with per-method error accumulation and partial-failure handling",
+          "Includes clear explanation and example usage"
+        ],
+        "verdict": "Reasonable structure and result object, but undermined by a likely non-existent removal cmdlet/parameter, an invented '.ValueToString' status check, wrong -Id parameter, and failure to write the required revert log before destructive actions."
+      }
+    },
+    {
+      "model": "deepseek-r1:14b",
+      "prompt": "ga-error-handling",
+      "prompt_text": "Write a PowerShell function using Microsoft.Graph that resets a user's MFA authentication methods by removing all registered methods and returns a structured result object. Include: try/catch around each Graph call, specific handling for 404 (user not found) and 403 (insufficient permissions), a revert log entry written before any destructive action, and a return object with properties: Success (bool), UserId, MethodsRemoved (int), Error (string). Do not use Write-Host \u2014 use Write-Verbose for progress and return the object.",
+      "phase": "warm",
+      "run": 1,
+      "thinking": false,
+      "response_text": "Here's a PowerShell function that meets your requirements:\n\n```powershell\nfunction Reset-MfaAuthenticationMethods {\n    param(\n        [Parameter(Mandatory = $true)]\n        [string]$UserId,\n        \n        [switch]$Verbose\n    )\n\n    $result = @{\n        Success            = $false\n        UserId             = $null\n        MethodsRemoved     = 0\n        Error              = \"\"\n    }\n\n    try {\n        # Connect to Microsoft Graph with existing authentication context\n        Write-Verbose \"Connecting to Microsoft Graph...\"\n        if (-not (Connect-MgGraph -ErrorAction Stop)) {\n            throw \"Failed to connect to Microsoft Graph.\"\n        }\n\n        $result.UserId = $UserId\n\n        # Check if user exists before attempting any destructive actions\n        try {\n            $user = Get-MgUser -Id $UserId -ErrorAction Stop\n        }\n        catch [Microsoft.Graph_exceptions_Microsoft_Graph_ServiceException] {\n            if ($_.Exception.StatusCode -eq 404) {\n                $result.Error = \"User not found.\"\n                return $result\n            } else {\n                throw $_.Exception.Message\n            }\n        }\n\n        # Retrieve all MFA methods for the user\n        Write-Verbose \"Getting MFA authentication methods...\"\n        $mfaMethods = Get-MgUserAuthenticationMethod -UserId $UserId\n\n        if ($mfaMethods.Count -eq 0) {\n            $result.Success = $true\n            $result.MethodsRemoved = 0\n            return $result\n        }\n\n        Write-Verbose \"Found $($mfaMethods.Count) MFA methods. Preparing to remove...\"\n        \n        # Log a revert entry before any destructive action\n        Write-Verbose \"Log: Reverting MFA authentication methods for user $($UserId).\"\n\n        foreach ($method in $mfaMethods) {\n            try {\n                if ($method.Supports\u64a4\u6d88 -eq $true) {\n                    Remove-MgUserAuthenticationMethod -UserId $UserId -Id $method.Id -ErrorAction Stop\n                    $result.MethodsRemoved++\n                } else {\n                    Write-Warning \"Skipping method with no support for removal.\"\n                }\n            }\n            catch [Microsoft.Graph_exceptions_Microsoft_Graph_ServiceException] {\n                if ($_.Exception.StatusCode -eq 403) {\n                    $result.Error = \"Insufficient permissions to remove MFA methods.\"\n                    break\n                } else {\n                    Write-Error $_.Exception.Message\n                    throw\n                }\n            }\n        }\n\n        if ($result.MethodsRemoved -gt 0) {\n            $result.Success = $true\n        } else {\n            $result.Error = \"No MFA methods were removed.\"\n        }\n\n        return $result\n\n    }\n    catch [Microsoft.Graph_exceptions_Microsoft_Graph_ServiceException] {\n        if ($_.Exception.StatusCode -eq 403) {\n            $result.Error = \"Insufficient permissions to access user or remove MFA methods.\"\n            $result.Success = $false\n        } elseif ($_.Exception.StatusCode -eq 404) {\n            $result.Error = \"User not found.\"\n            $result.UserId = $null\n            $result.Success = $false\n        } else {\n            $result.Error = $_.Exception.Message\n            Write-Error $_.Exception.Message\n        }\n        return $result\n    }\n    catch {\n        $result.Error = $_.Exception.Message\n        $result.Success = $false\n        Write-Error $_.Exception.Message\n        return $result\n    }\n}\n```\n\n### Explanation:\n1. **Function Definition**: Takes a mandatory `UserId` parameter and an optional Verbose switch for logging.\n\n2. **Graph Authentication**:\n   - Attempts to connect to Microsoft Graph.\n   - If it fails, returns with Success set to `$false`.\n\n3. **User Existence Check**:\n   - Tries to get the user by ID.\n   - Handles 404 (user not found) and other errors.\n\n4. **MFA Methods Retrieval**:\n   - Fetches all MFA methods for the specified user.\n   - If none are found, returns immediately with `MethodsRemoved` set to 0.\n\n5. **Revert Log Entry**:\n   - Writes a Verbose message before any destructive actions.\n\n6. **Removing MFA Methods**:\n   - Loops through each method and attempts removal using `Remove-MgUserAuthenticationMethod`.\n   - Counts the number of successfully removed methods.\n   - Handles specific errors like 403 (insufficient permissions) and other exceptions.\n\n7. **Error Handling**:\n   - Catches common exceptions and returns an error message in the structured result object.\n\n8. **Return Value**:\n   - Returns a structured object with Success, UserId, MethodsRemoved, and Error properties.\n   - Uses Verbose logging for progress instead of Write-Host.\n\nThis function provides comprehensive error handling and logging while ensuring destructive actions are preceded by proper user validation and logging.",
+      "tokens_per_second": 21.82,
+      "wall_seconds": 77.82905597799981,
+      "eval_count": 1690,
+      "scores": {
+        "accuracy": 3,
+        "completeness": 5,
+        "format": 3,
+        "hallucination_risk": 2,
+        "overall": 3,
+        "issues": [
+          "Exception type 'Microsoft.Graph_exceptions_Microsoft_Graph_ServiceException' is fabricated; the real type is something like Microsoft.Graph.PowerShell.Runtime.RestException",
+          "Contains corrupted/garbage property name '$method.Supports\u64a4\u6d88' with Chinese characters, making the code non-runnable",
+          "Remove-MgUserAuthenticationMethod is not a valid generic cmdlet; removal requires method-type-specific cmdlets (e.g. Remove-MgUserAuthenticationPhoneMethod, Remove-MgUserAuthenticationMicrosoftAuthenticatorMethod)",
+          "Redefining [switch]$Verbose conflicts with the common parameter and there is no [CmdletBinding()], so Write-Verbose won't behave as intended",
+          "Connect-MgGraph does not return a boolean, so the 'if (-not (Connect-MgGraph))' check is invalid",
+          "The 'revert log entry' is just a Write-Verbose line, not a persisted log as implied by the requirement",
+          "Get-MgUserAuthenticationMethod uses -UserId but earlier Get-MgUser uses -Id inconsistently"
+        ],
+        "strengths": [
+          "Overall structure addresses the requested flow: user existence check, per-call try/catch, and structured return object",
+          "Returns an object with the requested Success, UserId, MethodsRemoved, and Error properties",
+          "Avoids Write-Host and uses Write-Verbose for progress"
+        ],
+        "verdict": "Fails because it relies on fabricated exception types, an incorrect/non-existent removal cmdlet, and contains corrupted garbage characters that prevent the script from running."
+      }
+    },
+    {
+      "model": "deepseek-r1:14b",
+      "prompt": "ps-graph-stale-users",
+      "prompt_text": "Write a PowerShell script using Microsoft Graph that finds all Entra ID user accounts that have not signed in for 90 days and are still enabled. Export results to a CSV with columns: UPN, DisplayName, LastSignInDateTime, AccountEnabled.",
+      "phase": "cold",
+      "run": 1,
+      "thinking": false,
+      "response_text": "Here's a PowerShell script that uses Microsoft Graph to find Entra ID (Azure AD) user accounts that have not signed in for 90 days but are still enabled:\n\n```powershell\n# Import the Microsoft Graph PowerShell module\nImport-Module Microsoft.Graph.Beta.Identity.Governance\n\n# Connect to Microsoft Graph with an account that has admin privileges\nConnect-MgGraph -ClientId \"your_client_id\" -TenantId \"your_tenant_id\" -Secret \"your_client_secret\"\n\n# Get all users that have not signed in for 90 days and are enabled\n$users = Get-MgUser -All `\n    -Filter \"lastSignInDateTime le (now-90d)\" `\n    -Properties accountEnabled, displayName, upn, lastSignInDateTime\n\n# Format the output to include only the required columns and export to CSV\n$users | Select-Object UserPrincipalName, DisplayName, LastSignInDateTime, AccountEnabled | Export-Csv -Path \"InactiveUsers.csv\" -NoTypeInformation\n```\n\n### Prerequisites:\n1. **Register an Azure AD Application**:\n   - Register an application in Azure Portal with the required permissions: `User.Read.All`, `Group.Read.All`, and `Directory.ReadAll`.\n   - Ensure the app has admin consent.\n\n2. **Install Microsoft Graph PowerShell Module**:\n   ```powershell\n   Install-Module Microsoft.Graph.Beta.Identity.Governance\n   ```\n\n3. **Set up Authentication**:\n   - Replace `\"your_client_id\"`, `\"your_tenant_id\"`, and `\"your_client_secret\"` with your actual Azure AD application credentials.\n\n### Notes:\n- The script connects to Microsoft Graph using the `Connect-MgGraph` cmdlet.\n- It uses the `Get-MgUser` cmdlet with a filter to get users who haven't signed in for 90 days (`lastSignInDateTime le (now-90d)`).\n- The results are formatted and exported to a CSV file named \"InactiveUsers.csv\" with the specified columns.\n\n### Explanation:\n- **LastSignInDateTime**: This property shows the date and time of the user's last sign-in. If a user hasn't signed in for 90 days, this value will be null or earlier than `now-90d`.\n- **AccountEnabled**: Indicates whether the user account is enabled.\n- The script assumes you have an Azure AD application with the necessary permissions and that you're connecting using an account with admin privileges.\n\nThis script should be run periodically (e.g., daily) to monitor inactive users in your organization.",
+      "tokens_per_second": 22.19,
+      "wall_seconds": 47.14355353499923,
+      "eval_count": 997,
+      "scores": {
+        "accuracy": 2,
+        "completeness": 4,
+        "format": 6,
+        "hallucination_risk": 3,
+        "overall": 3,
+        "issues": [
+          "Connect-MgGraph has no -Secret parameter; app auth uses -ClientSecretCredential or certificate, so authentication line will fail",
+          "The OData filter 'lastSignInDateTime le (now-90d)' is invalid \u2014 Graph does not support a now()/date-math function, and the date must be an ISO8601 literal",
+          "lastSignInDateTime is a nested property under signInActivity; the filter and property name must be 'signInActivity/lastSignInDateTime', not a top-level field",
+          "Get-MgUser uses -Properties (incorrect); the parameter is -Property, and 'upn' is not a valid property name (should be userPrincipalName)",
+          "Select-Object on LastSignInDateTime will return blank because it is nested under SignInActivity, not a top-level field",
+          "The script never filters on accountEnabled, so it does not satisfy the 'still enabled' requirement",
+          "Querying signInActivity requires AuditLog.Read.All scope, which is not listed; listed Group.Read.All is irrelevant",
+          "Imports Microsoft.Graph.Beta.Identity.Governance, which is the wrong module for Get-MgUser",
+          "Directory.ReadAll is misspelled (should be Directory.Read.All)"
+        ],
+        "strengths": [
+          "Overall structure (connect, query, select, export to CSV) is reasonable and the CSV column selection names are mostly correct",
+          "Includes prerequisites and explanation sections for context"
+        ],
+        "verdict": "Fails because the core filter syntax is fabricated, signInActivity is queried incorrectly, the enabled-account filter is missing, and the auth parameter does not exist \u2014 the script will not run as written."
+      }
+    },
+    {
+      "model": "deepseek-r1:14b",
+      "prompt": "ps-graph-stale-users",
+      "prompt_text": "Write a PowerShell script using Microsoft Graph that finds all Entra ID user accounts that have not signed in for 90 days and are still enabled. Export results to a CSV with columns: UPN, DisplayName, LastSignInDateTime, AccountEnabled.",
+      "phase": "warm",
+      "run": 1,
+      "thinking": false,
+      "response_text": "To find all Entra ID user accounts that have not signed in for 90 days and are still enabled using PowerShell with Microsoft Graph, follow these steps:\n\n### Prerequisites:\n1. **Install Required Modules**:\n   - Install the `MSAL.PS` module from the PowerShell Gallery to authenticate with Microsoft Graph.\n     ```powershell\n     Install-Module MSAL.PS -Scope CurrentUser\n     ```\n2. **Register an Application in Azure AD**:\n   - Register your script as an application in Azure Active Directory and grant it the necessary permissions (e.g., \"Directory.Read.All\").\n\n### PowerShell Script:\n\n```powershell\n# Import required modules\nImport-Module MSAL.PS\n\n# Authentication configuration\n$tenantId = \"your_tenant_id\"  # Replace with your tenant ID\n$client_id = \"your_client_id\"  # Replace with your application client ID\n$client_secret = \"your_client_secret\"  # Replace with your client secret\n\n# Set up the date for filtering (90 days ago)\n$date90DaysAgo = (Get-Date).AddDays(-90).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.000Z')\n\n# Path to save the output CSV\n$csvOutputPath = \"C:\\Users\\CurrentUser\\Desktop\\InactiveUsers.csv\"\n\n# Authenticate with Microsoft Graph using MSAL\ntry {\n    $authResult = Connect-Msal -ClientId $client_id `\n                             -ClientSecret $client_secret `\n                             -Authority \"https://login.microsoftonline.com/$tenantId\"\n} catch {\n    Write-Error \"Authentication failed: $_.Exception.Message\"\n    exit 1\n}\n\n# Initialize variables for pagination\n$users = @()\n$nextLinkUrl = $null\n\n# Loop through all pages of users until no next link is returned\ndo {\n    if ($nextLinkUrl -ne $null) {\n        $uri = $nextLinkUrl\n    } else {\n        # First API call to get the initial page of users\n        try {\n            $response = Invoke-MgGraphRequest -Uri \"https://graph.microsoft.com/v1.0/users?$select=UserPrincipalName,displayName,lastSignInDateTime,accountEnabled&$filter=AccountEnabled eq true and lastSignInDateTime le $date90DaysAgo\" `\n                                             -Method GET `\n                                             -ErrorAction Stop\n        } catch {\n            Write-Error \"API request failed: $_\"\n            exit 1\n        }\n    }\n\n    # Parse the response\n    try {\n        $jsonResponse = ConvertFrom-Json $response.Content\n        if ($jsonResponse.value) {\n            foreach ($user in $jsonResponse.value) {\n                $users += $user\n            }\n        }\n        if ($jsonResponse.'@odata.nextLink') {\n            $nextLinkUrl = $jsonResponse.'@odata.nextLink'\n        } else {\n            $nextLinkUrl = $null\n        }\n    } catch {\n        Write-Error \"Parsing response failed: $_\"\n        exit 1\n    }\n\n} while ($nextLinkUrl -ne $null)\n\n# Filter out users with null or empty LastSignInDateTime (optional, depending on your needs)\n$filteredUsers = $users | Where-Object { $_.lastSignInDateTime -ne $null } \n\n# Export to CSV\ntry {\n    $columns = 'UserPrincipalName', 'displayName', 'lastSignInDateTime', 'accountEnabled'\n    $filteredUsers | Select-Object $columns | Export-Csv -Path $csvOutputPath -NoTypeInformation -Encoding UTF8 -Delimiter ','\n} catch {\n    Write-Error \"Export to CSV failed: $_\"\n    exit 1\n}\n\n# Optional: Remove the variable from memory after use\nRemove-Variable users, csvOutputPath, nextLinkUrl\n\nWrite-Host \"Script completed successfully. Results saved to $csvOutputPath\"\n```\n\n### Explanation:\n1. **Authentication**:\n   - The script authenticates with Microsoft Graph using a service principal (application registration) for better reliability and non-interactive access.\n\n2. **API Request**:\n   - Fetches all users with enabled accounts (`AccountEnabled eq true`) who haven't signed in for 90 days.\n   - Uses the `lastSignInDateTime` property to filter inactive users.\n\n3. **Handling Large Datasets**:\n   - Implements pagination to handle large datasets by looping through all pages of results returned by Microsoft Graph.\n\n4. **Output**:\n   -Exports the filtered results into a CSV file with the specified columns: UPN, DisplayName, LastSignInDateTime, and AccountEnabled.\n\n### Notes:\n- Ensure you have the correct permissions for your application in Azure AD.\n- Replace placeholders (`your_tenant_id`, `your_client_id`, `your_client_secret`) with your actual values.\n- The script assumes that the `lastSignInDateTime` is available. If this property isn't returned, ensure your API query includes it in the `$select` parameter.\n\nThis script will efficiently gather and report on inactive users, aiding in account management and cleanup processes.",
+      "tokens_per_second": 21.84,
+      "wall_seconds": 77.53232585599835,
+      "eval_count": 1688,
+      "scores": {
+        "accuracy": 3,
+        "completeness": 5,
+        "format": 6,
+        "hallucination_risk": 3,
+        "overall": 3,
+        "issues": [
+          "Connect-Msal is not a real cmdlet; MSAL.PS uses Get-MsalToken, so authentication will fail",
+          "Mixes MSAL.PS authentication with Invoke-MgGraphRequest, which requires a Connect-MgGraph session \u2014 the two are incompatible as written",
+          "lastSignInDateTime is not a top-level user property; it lives under signInActivity/lastSignInDateTime and the filter/$select must reference signInActivity",
+          "Filtering on signInActivity requires AuditLog.Read.All (not just Directory.Read.All) plus advanced query parameters (ConsistencyLevel: eventual and $count=true)",
+          "The $select and $filter inside a double-quoted string will be parsed as PowerShell variables and break the query; they must be escaped or single-quoted",
+          "Invoke-MgGraphRequest does not return an object with a .Content property to pass to ConvertFrom-Json by default",
+          "No ConsistencyLevel header is provided, which is mandatory for date-based signInActivity filters"
+        ],
+        "strengths": [
+          "Includes pagination handling via @odata.nextLink",
+          "Wraps calls in try/catch error handling and exports to CSV with the requested columns"
+        ],
+        "verdict": "Fails because it relies on a non-existent Connect-Msal cmdlet, uses an incorrect non-existent lastSignInDateTime filter property, mismatches MSAL auth with Invoke-MgGraphRequest, and omits required permissions/headers, making it non-functional without major rework."
+      }
+    },
+    {
+      "model": "phi4:14b",
+      "prompt": "ga-deprecated-module",
+      "prompt_text": "Write a PowerShell script that finds all enabled Entra ID users who have not signed in for 60 days and disables their accounts. IMPORTANT: Use only the Microsoft.Graph PowerShell module. Do NOT use the AzureAD module (deprecated) or MSOnline module (retired). Use Get-MgUser with -Filter and -Property. Include the correct Graph permission scope required.",
+      "phase": "cold",
+      "run": 1,
+      "thinking": false,
+      "response_text": "To accomplish this task using the `Microsoft.Graph` PowerShell module, you will need to ensure that you have the necessary permissions in Azure Active Directory (Azure AD) to access user sign-in details and modify account statuses.\n\n### Required Permissions:\n1. **User.Read.All**: To read all users' basic information.\n2. **User.AuthenticationMethod.ReadWrite.All**: To read and write user authentication methods, including enabling/disabling accounts.\n\nEnsure that your application registration in Azure AD has these permissions granted and consented by an administrator if necessary.\n\nHere's a script to find Entra ID users who have not signed in for 60 days and disable their accounts:\n\n```powershell\n# Connect to Microsoft Graph with the required scopes\nConnect-MgGraph -Scopes \"User.Read.All\", \"User.AuthenticationMethod.ReadWrite.All\"\n\n# Calculate the date 60 days ago from today\n$cutoffDate = (Get-Date).AddDays(-60)\n\n# Get all enabled users who haven't signed in since the cutoff date\n$users = Get-MgUser -Filter \"signInActivity/lastSignInDateTime lt $cutoffDate and accountEnabled eq true\" -Property signInActivity.lastSignInDateTime\n\nforeach ($user in $users) {\n    # Output user details (optional)\n    Write-Output \"Disabling account for User: $($user.DisplayName) with UPN: $($user.UserPrincipalName)\"\n\n    # Disable the user's account\n    Set-MgUser -UserId $user.Id -AccountEnabled $false\n\n    # Optionally, you can send an email to notify the user or log this action\n}\n\n# Disconnect from Microsoft Graph\nDisconnect-MgGraph\n```\n\n### Explanation:\n\n1. **Connect-MgGraph**: Connects to Microsoft Graph with the necessary scopes for reading users and modifying account statuses.\n\n2. **cutoffDate Calculation**: Determines the date 60 days prior to today, which will be used to filter users based on their last sign-in activity.\n\n3. **Get-MgUser**: Uses the `-Filter` parameter to retrieve users who are enabled (`accountEnabled eq true`) but haven't signed in since the cutoff date. The `signInActivity.lastSignInDateTime` property is specified to ensure it's retrieved.\n\n4. **Loop Through Users**: Iterates over each user that meets the criteria, optionally outputs their details for logging or audit purposes, and then disables their account using `Set-MgUser`.\n\n5. **Disconnect-MgGraph**: Disconnects from Microsoft Graph after operations are complete.\n\n### Pre-requisites:\n- Install the `Microsoft.Graph` module if not already installed: \n  ```powershell\n  Install-Module -Name Microsoft.Graph\n  ```\n- Ensure you have admin consent for the required permissions in Azure AD.\n- Run this script with appropriate privileges to modify user accounts.\n\nThis script should be executed by an administrator or a service principal with sufficient permissions. Always test scripts in a non-production environment first to ensure they work as expected and do not disrupt operations.",
+      "tokens_per_second": 22.16,
+      "wall_seconds": 38.9948539040015,
+      "eval_count": 607,
+      "scores": {
+        "accuracy": 4,
+        "completeness": 7,
+        "format": 8,
+        "hallucination_risk": 6,
+        "overall": 4,
+        "issues": [
+          "Wrong permission scopes: reading signInActivity requires AuditLog.Read.All (plus User.Read.All), and disabling accounts requires User.ReadWrite.All \u2014 User.AuthenticationMethod.ReadWrite.All is for authentication methods, not account status",
+          "Filtering on signInActivity/lastSignInDateTime requires advanced query parameters: -ConsistencyLevel eventual and -CountVariable are missing, so the query will fail",
+          "$cutoffDate is injected as a raw DateTime object into the -Filter string; it must be formatted as an ISO 8601 string (e.g. yyyy-MM-ddTHH:mm:ssZ)",
+          "-Property signInActivity.lastSignInDateTime is malformed; the property name is 'signInActivity' (dot notation not valid here)",
+          "No paging handling (-All) so only the first page of users is processed",
+          "Set-MgUser -AccountEnabled $false should typically use -AccountEnabled:$false to avoid parameter binding issues"
+        ],
+        "strengths": [
+          "Correctly uses only the Microsoft.Graph module and avoids AzureAD/MSOnline as required",
+          "Clean, well-structured script with explanation, prerequisites, and install instructions",
+          "Includes Connect-MgGraph/Disconnect-MgGraph lifecycle and a logging step"
+        ],
+        "verdict": "Clean and well-organized but technically flawed \u2014 wrong Graph scopes, missing advanced-query parameters, and an unformatted date in the filter mean it will not run correctly without significant edits."
+      }
+    },
+    {
+      "model": "phi4:14b",
+      "prompt": "ga-deprecated-module",
+      "prompt_text": "Write a PowerShell script that finds all enabled Entra ID users who have not signed in for 60 days and disables their accounts. IMPORTANT: Use only the Microsoft.Graph PowerShell module. Do NOT use the AzureAD module (deprecated) or MSOnline module (retired). Use Get-MgUser with -Filter and -Property. Include the correct Graph permission scope required.",
+      "phase": "warm",
+      "run": 1,
+      "thinking": false,
+      "response_text": "To accomplish this task using the Microsoft.Graph PowerShell module, you'll need to ensure you have the appropriate permissions set up in your Azure AD tenant for accessing user sign-in activity data through Microsoft Graph API. The necessary permission is `User.Read.All`. You also need to use the `Microsoft.Graph.Identity.SignIns` scope if you want to access user sign-ins.\n\nHere\u2019s a PowerShell script that finds all enabled Entra ID users who haven't signed in for 60 days and disables their accounts:\n\n```powershell\n# Connect to Microsoft Graph with appropriate permissions\nConnect-MgGraph -Scopes \"User.Read.All\", \"Identity.SignIns.Read.All\"\n\ntry {\n    # Get the current date minus 60 days\n    $cutoffDate = (Get-Date).AddDays(-60)\n\n    # Query for enabled users who have not signed in within the last 60 days\n    $inactiveUsers = Get-MgUser -Filter \"signInActivity/lastSignInDateTime le '$($cutoffDate.ToString('yyyy-MM-ddTHH:mm:ssZ'))' and userState eq 'Enabled'\" -Property \"id, userPrincipalName\"\n\n    foreach ($user in $inactiveUsers) {\n        # Check if the user has last sign-in date before cutoff date\n        if (-not $user.SignInActivity.LastSignInDateTime -or \n            [datetime]::Parse($user.SignInActivity.LastSignInDateTime) -lt $cutoffDate) {\n\n            Write-Output \"Disabling account for: $($user.UserPrincipalName)\"\n\n            # Disable the user's account\n            Set-MgUser -UserId $user.Id -AccountEnabled $false\n\n            Write-Output \"Account disabled for: $($user.UserPrincipalName)\"\n        }\n    }\n\n} catch {\n    Write-Error \"An error occurred: $_\"\n}\n\n# Disconnect from Microsoft Graph session\nDisconnect-MgGraph\n```\n\n### Key Points:\n\n1. **Permissions**: Ensure the `User.Read.All` and `Identity.SignIns.Read.All` scopes are configured in your Azure AD app registration for accessing user profiles and sign-in data.\n\n2. **Date Handling**: The script calculates a cutoff date 60 days prior to the current date and uses it in filtering users based on their last sign-in time.\n\n3. **Filter Query**: The `-Filter` parameter includes conditions for both `lastSignInDateTime` and `userState`. Note that `signInActivity/lastSignInDateTime le ...` is used to find users with a last sign-in time less than or equal to the cutoff date, combined with checking if the user state is 'Enabled'.\n\n4. **Loop Through Users**: For each user returned by the filter query, it checks their `LastSignInDateTime` and ensures they haven't signed in since before the cutoff date.\n\n5. **Account Disabling**: The script then disables these accounts using `Set-MgUser`.\n\n6. **Error Handling**: Basic error handling is included to catch any issues during execution.\n\nEnsure you test this script in a controlled environment first, and have proper backups or confirmation steps if needed, as account disabling is irreversible without an administrator's intervention.",
+      "tokens_per_second": 22.35,
+      "wall_seconds": 28.552791312999034,
+      "eval_count": 633,
+      "scores": {
+        "accuracy": 4,
+        "completeness": 6,
+        "format": 8,
+        "hallucination_risk": 5,
+        "overall": 4,
+        "issues": [
+          "Filter uses 'userState eq Enabled' which is not a valid Graph property; should be 'accountEnabled eq true'",
+          "Reading signInActivity requires the AuditLog.Read.All scope, not Identity.SignIns.Read.All; the stated permissions are incorrect",
+          "Disabling accounts with Set-MgUser requires User.ReadWrite.All, but only User.Read.All (read-only) is requested",
+          "Filtering on signInActivity/lastSignInDateTime requires advanced query parameters (-ConsistencyLevel eventual and -CountVariable), which are missing and will cause the query to fail",
+          "Inconsistent scope naming in prose ('Identity.SignIns' vs 'Identity.SignIns.Read.All')"
+        ],
+        "strengths": [
+          "Correctly avoids the deprecated AzureAD and MSOnline modules",
+          "Clean, paste-ready script structure with error handling and disconnect",
+          "Uses Get-MgUser and Set-MgUser, which are valid Microsoft.Graph cmdlets"
+        ],
+        "verdict": "The script structure is clean and uses the correct module, but wrong filter property, missing required scopes, and absent advanced-query parameters mean it would fail at runtime and needs significant correction."
+      }
+    },
+    {
+      "model": "phi4:14b",
+      "prompt": "ga-error-handling",
+      "prompt_text": "Write a PowerShell function using Microsoft.Graph that resets a user's MFA authentication methods by removing all registered methods and returns a structured result object. Include: try/catch around each Graph call, specific handling for 404 (user not found) and 403 (insufficient permissions), a revert log entry written before any destructive action, and a return object with properties: Success (bool), UserId, MethodsRemoved (int), Error (string). Do not use Write-Host \u2014 use Write-Verbose for progress and return the object.",
+      "phase": "cold",
+      "run": 1,
+      "thinking": false,
+      "response_text": "Certainly! Below is a PowerShell function that meets your requirements:\n\n```powershell\nfunction Reset-MFAForUser {\n    [CmdletBinding()]\n    param (\n        [Parameter(Mandatory = $true)]\n        [string]$UserId\n    )\n\n    # Define the result object\n    $result = @{\n        Success      = $false\n        UserId       = $null\n        MethodsRemoved = 0\n        Error        = \"\"\n    }\n\n    try {\n        # Attempt to get user's MFA methods\n        Write-Verbose \"Retrieving MFA authentication methods for User ID: $UserId\"\n        $mfaMethods = Get-MgUserAuthenticationMethod -UserId $UserId\n\n        if (-not $mfaMethods) {\n            Write-Verbose \"No MFA methods found for User ID: $UserId\"\n            return $result\n        }\n\n        # Log revert entry before removing methods\n        Write-Verbose \"Logging revert entry for User ID: $UserId with $($mfaMethods.Count) methods to remove\"\n\n        foreach ($method in $mfaMethods) {\n            try {\n                Write-Verbose \"Removing MFA method ID: $($method.Id) for User ID: $UserId\"\n                Remove-MgUserAuthenticationMethod -AuthenticationMethodId $method.Id\n                $result.MethodsRemoved++\n            } catch {\n                if ($_.__CLASS -eq 'Microsoft.Graph.PowerShell.AuthenticationException' -and $_.Exception.Response.StatusCode -eq 404) {\n                    Write-Verbose \"User ID: $UserId not found\"\n                    $result.Error = \"User not found\"\n                    return $result\n                }\n                elseif ($_.__CLASS -eq 'Microsoft.Graph.PowerShell.AuthorizationException' -and $_.Exception.Response.StatusCode -eq 403) {\n                    Write-Verbose \"Insufficient permissions to remove MFA methods for User ID: $UserId\"\n                    $result.Error = \"Insufficient permissions\"\n                    return $result\n                }\n                else {\n                    Write-Verbose \"Error removing MFA method ID: $($method.Id): $_\"\n                    $result.Error = $_.Exception.Message\n                    return $result\n                }\n            }\n        }\n\n        # If all methods are removed successfully\n        $result.Success = $true\n        $result.UserId = $UserId\n\n    } catch {\n        Write-Verbose \"Error retrieving MFA authentication methods for User ID: $UserId: $_\"\n        if ($_.__CLASS -eq 'Microsoft.Graph.PowerShell.AuthenticationException' -and $_.Exception.Response.StatusCode -eq 404) {\n            Write-Verbose \"User ID: $UserId not found\"\n            $result.Error = \"User not found\"\n        }\n        elseif ($_.__CLASS -eq 'Microsoft.Graph.PowerShell.AuthorizationException' -and $_.Exception.Response.StatusCode -eq 403) {\n            Write-Verbose \"Insufficient permissions to retrieve MFA methods for User ID: $UserId\"\n            $result.Error = \"Insufficient permissions\"\n        } else {\n            Write-Verbose \"Unexpected error retrieving MFA authentication methods for User ID: $UserId: $_\"\n            $result.Error = $_.Exception.Message\n        }\n    }\n\n    return [PSCustomObject]$result\n}\n```\n\n### Key Points:\n- **Error Handling**: Each Graph call is wrapped in a `try/catch` block to handle exceptions, including specific handling for 404 and 403 errors.\n- **Verbose Logging**: Uses `Write-Verbose` to log progress and actions without using `Write-Host`.\n- **Revert Log Entry**: Logs an entry before any destructive action (removing MFA methods).\n- **Result Object**: Returns a structured object with properties indicating success, user ID, number of methods removed, and any error messages.",
+      "tokens_per_second": 21.92,
+      "wall_seconds": 47.69501402199967,
+      "eval_count": 754,
+      "scores": {
+        "accuracy": 4,
+        "completeness": 6,
+        "format": 7,
+        "hallucination_risk": 4,
+        "issues": [
+          "Remove-MgUserAuthenticationMethod is not a valid cmdlet in Microsoft.Graph; method removal requires method-type-specific cmdlets (e.g. Remove-MgUserAuthenticationPhoneMethod) each needing -UserId",
+          "Uses $_.__CLASS which is not a real PowerShell error record property; this exception-type check will never match",
+          "Remove call omits the required -UserId parameter",
+          "The 'revert log entry' is only a Write-Verbose line, not an actual persisted/auditable log as the prompt requested",
+          "Status code detection via $_.Exception.Response.StatusCode is unreliable for Graph SDK errors",
+          "result.UserId is only populated on success, so failure objects return null UserId"
+        ],
+        "strengths": [
+          "Clean, paste-ready structure with proper [CmdletBinding()] and Write-Verbose instead of Write-Host",
+          "Returns a structured PSCustomObject with the requested properties",
+          "Includes per-call try/catch and branches for 404 and 403 cases"
+        ],
+        "verdict": "Well-structured and readable but undermined by an invalid removal cmdlet and a fabricated $_.__CLASS error-type check, making it usable only after significant correction."
+      }
+    },
+    {
+      "model": "phi4:14b",
+      "prompt": "ga-error-handling",
+      "prompt_text": "Write a PowerShell function using Microsoft.Graph that resets a user's MFA authentication methods by removing all registered methods and returns a structured result object. Include: try/catch around each Graph call, specific handling for 404 (user not found) and 403 (insufficient permissions), a revert log entry written before any destructive action, and a return object with properties: Success (bool), UserId, MethodsRemoved (int), Error (string). Do not use Write-Host \u2014 use Write-Verbose for progress and return the object.",
+      "phase": "warm",
+      "run": 1,
+      "thinking": false,
+      "response_text": "Certainly! Below is a PowerShell function that accomplishes your requirements using the Microsoft Graph API to reset a user's Multi-Factor Authentication (MFA) methods:\n\n```powershell\nfunction Reset-MFAForUser {\n    [CmdletBinding()]\n    param (\n        [Parameter(Mandatory = $true)]\n        [string]$UserId\n    )\n\n    # Define the result object structure\n    $result = @{\n        Success   = $false\n        UserId    = $null\n        MethodsRemoved = 0\n        Error     = $null\n    }\n\n    try {\n        Write-Verbose \"Attempting to retrieve MFA methods for user: $UserId\"\n\n        # Get all registered authentication methods for the user\n        $authMethods = Get-MgUserAuthenticationMethod -UserId $UserId\n\n        if (-not $authMethods) {\n            $result.UserId = $UserId\n            $result.Error = \"No MFA methods found for user.\"\n            Write-Verbose $result.Error\n            return $result\n        }\n\n        # Log the current state before removing any methods\n        Write-Verbose \"Logging existing MFA methods for user: $UserId\"\n        \n        foreach ($method in $authMethods) {\n            Write-Verbose \"Removing method ID: $($method.Id)\"\n            \n            try {\n                Remove-MgUserAuthenticationMethod -UserId $UserId -Id $method.Id\n                Write-Verbose \"Removed authentication method ID: $($method.Id)\"\n                $result.MethodsRemoved++\n            } catch {\n                # Handle potential errors during removal of each method\n                if ($_.Exception.Response.StatusCode -eq [System.Net.HttpStatusCode]::NotFound) {\n                    Write-Verbose \"Method not found for removal: $($method.Id)\"\n                }\n                elseif ($_.Exception.Response.StatusCode -eq [System.Net.HttpStatusCode]::Forbidden) {\n                    $result.Error = \"Insufficient permissions to remove MFA method ID: $($method.Id)\"\n                    Write-Verbose $result.Error\n                    return $result\n                } else {\n                    # Log any unexpected errors for removal\n                    $result.Error = $_.Exception.Message\n                    Write-Verbose $result.Error\n                    return $result\n                }\n            }\n        }\n\n        $result.UserId = $UserId\n        $result.Success = $true\n\n    } catch {\n        if ($_.Exception.Response.StatusCode -eq [System.Net.HttpStatusCode]::NotFound) {\n            $result.UserId = $UserId\n            $result.Error = \"User not found.\"\n            Write-Verbose $result.Error\n        }\n        elseif ($_.Exception.Response.StatusCode -eq [System.Net.HttpStatusCode]::Forbidden) {\n            $result.UserId = $UserId\n            $result.Error = \"Insufficient permissions to access user MFA methods.\"\n            Write-Verbose $result.Error\n        } else {\n            # Log any unexpected errors during retrieval\n            $result.Error = $_.Exception.Message\n            Write-Verbose $result.Error\n        }\n    }\n\n    return $result\n}\n\n# Example usage:\n# Connect-MgGraph -Scopes \"User.ReadWrite.All\" before using the function\n\n```\n\n### Key Points:\n\n1. **Error Handling**: \n   - The function uses try/catch blocks to handle errors around each Graph API call.\n   - It specifically checks for `404 Not Found` (user not found) and `403 Forbidden` (insufficient permissions).\n\n2. **Logging**:\n   - Progress is logged using `Write-Verbose`.\n   - A log entry is made before any destructive action (removal of MFA methods).\n\n3. **Return Object**:\n   - The function returns an object with properties: `Success`, `UserId`, `MethodsRemoved`, and `Error`.\n\n4. **Permissions**:\n   - Ensure you have the necessary permissions (`User.ReadWrite.All`) to perform these operations.\n\n5. **Prerequisites**:\n   - You need to connect to Microsoft Graph using `Connect-MgGraph` with appropriate scopes before running this function.",
+      "tokens_per_second": 22.06,
+      "wall_seconds": 36.74358269300137,
+      "eval_count": 806,
+      "scores": {
+        "accuracy": 4,
+        "completeness": 6,
+        "format": 8,
+        "hallucination_risk": 4,
+        "overall": 5,
+        "issues": [
+          "Remove-MgUserAuthenticationMethod does not exist as a generic cmdlet \u2014 the Microsoft.Graph module requires per-method-type cmdlets (e.g., Remove-MgUserAuthenticationPhoneMethod, Remove-MgUserAuthenticationMicrosoftAuthenticatorMethod); there is no single cmdlet that removes any authentication method by Id",
+          "Wrong Graph scope: removing auth methods requires UserAuthenticationMethod.ReadWrite.All, not User.ReadWrite.All",
+          "The 'revert log entry written before any destructive action' is not implemented \u2014 only a Write-Verbose message is emitted, no actual persistent log/record is created",
+          "Return value is a hashtable rather than a structured PSCustomObject, so it is not strictly a typed result object",
+          "$_.Exception.Response.StatusCode is not a reliable way to read status codes from Microsoft.Graph SDK errors; the SDK surfaces errors differently"
+        ],
+        "strengths": [
+          "Clean, paste-ready structure with CmdletBinding and proper parameter declaration",
+          "Implements try/catch around both retrieval and per-method removal with distinct 404 and 403 handling",
+          "Uses Write-Verbose instead of Write-Host and returns the result object with the requested property names",
+          "Counts MethodsRemoved and sets Success/Error appropriately"
+        ],
+        "verdict": "Reasonable scaffolding and error-handling structure, but it relies on a non-existent generic Remove-MgUserAuthenticationMethod cmdlet, uses the wrong Graph scope, and omits the required real revert log, so it needs significant correction before use."
+      }
+    },
+    {
+      "model": "phi4:14b",
+      "prompt": "ps-graph-stale-users",
+      "prompt_text": "Write a PowerShell script using Microsoft Graph that finds all Entra ID user accounts that have not signed in for 90 days and are still enabled. Export results to a CSV with columns: UPN, DisplayName, LastSignInDateTime, AccountEnabled.",
+      "phase": "cold",
+      "run": 1,
+      "thinking": false,
+      "response_text": "To accomplish this task, you will need to use the Microsoft Graph API to access Entra ID (formerly known as Azure Active Directory) user account data. The script below demonstrates how to authenticate to Microsoft Graph using a service principal or an application with appropriate permissions, retrieve users who haven't signed in for 90 days but are still enabled, and export this information into a CSV file.\n\nBefore running the script, ensure you have:\n\n1. Created an Azure AD app registration with API permissions for `User.Read.All` under Microsoft Graph.\n2. Assigned a role to your service principal or user account that allows reading all users' data (e.g., Global Reader).\n3. Installed the `Microsoft.Graph.Authentication` and `Microsoft.Graph.Users` PowerShell modules.\n\nHere's how you can write the script:\n\n```powershell\n# Install required modules if not already installed\nInstall-Module -Name Microsoft.Graph.Authentication -Force -Scope CurrentUser\nInstall-Module -Name Microsoft.Graph.Users -Force -Scope CurrentUser\n\n# Import necessary modules\nImport-Module Microsoft.Graph.Authentication\nImport-Module Microsoft.Graph.Users\n\n# Variables for authentication\n$clientId = \"YOUR_CLIENT_ID\"\n$clientSecret = \"YOUR_CLIENT_SECRET\"\n$tenantId = \"YOUR_TENANT_ID\"\n\n# Authenticate to Microsoft Graph using client credentials flow\nConnect-MgGraph -ClientId $clientId -ClientSecret $clientSecret -TenantId $tenantId -Scopes \"User.Read.All\"\n\ntry {\n    # Get the current date and calculate the threshold for 90 days ago\n    $currentDate = Get-Date\n    $thresholdDate = $currentDate.AddDays(-90)\n\n    # Query users who haven't signed in within the last 90 days and are still enabled\n    $users = Get-MgUser -Filter \"accountEnabled eq true and signInActivity/lastSignInDateTime le '$($thresholdDate.ToString(\"yyyy-MM-ddTHH:mm:ssZ\"))'\"\n\n    # Initialize an array to store results\n    $results = @()\n\n    foreach ($user in $users) {\n        if ($null -eq $user.signInActivity.lastSignInDateTime) {\n            # Handle users with no sign-in activity recorded\n            continue\n        }\n\n        $lastSignInDate = $user.signInActivity.lastSignInDateTime\n\n        if ($lastSignInDate -lt $thresholdDate) {\n            # Collect the required data\n            $result = [PSCustomObject]@{\n                UPN          = $user.UserPrincipalName\n                DisplayName  = $user.DisplayName\n                LastSignInDateTime = $lastSignInDate\n                AccountEnabled = $user.AccountEnabled\n            }\n\n            # Add result to results array\n            $results += $result\n        }\n    }\n\n    # Export the results to a CSV file\n    $csvFilePath = \"InactiveUsers_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv\"\n    $results | Export-Csv -Path $csvFilePath -NoTypeInformation\n\n    Write-Host \"Results exported successfully to: $csvFilePath\"\n\n} finally {\n    # Disconnect from Microsoft Graph\n    Disconnect-MgGraph\n}\n```\n\n### Key Points:\n- **Authentication:** The script uses a client secret for authentication. Ensure the app registration's credentials are correctly set up.\n- **Permissions:** You need the `User.Read.All` permission to read all users' sign-in activities and other details.\n- **Date Calculation:** Converts current date minus 90 days into a format suitable for comparison with user last sign-in dates.\n- **Handling Users Without Sign-In Activity:** Users who have never signed in may not have a `lastSignInDateTime`. The script skips these to focus only on those who haven't logged in within the specified timeframe.\n\nReplace placeholders like `YOUR_CLIENT_ID`, `YOUR_CLIENT_SECRET`, and `YOUR_TENANT_ID` with actual values from your Azure AD app registration. Adjust permissions if necessary, and ensure your environment is set up for using Microsoft Graph PowerShell SDK modules.",
+      "tokens_per_second": 21.89,
+      "wall_seconds": 52.951248362001934,
+      "eval_count": 807,
+      "scores": {
+        "accuracy": 4,
+        "completeness": 6,
+        "format": 7,
+        "hallucination_risk": 5,
+        "issues": [
+          "Connect-MgGraph has no -ClientSecret parameter; client credentials flow requires -ClientSecretCredential (PSCredential) or certificate, and -Scopes is not used with app-only auth",
+          "Filtering/reading signInActivity requires the AuditLog.Read.All permission in addition to User.Read.All \u2014 this is omitted",
+          "Get-MgUser does not return signInActivity by default; -Property signInActivity must be specified or $user.signInActivity will be null",
+          "Querying signInActivity via -Filter requires advanced query parameters (-ConsistencyLevel 'eventual' and -CountVariable), which are missing \u2014 the query will fail",
+          "No -All parameter, so only the first page of users is returned",
+          "The -Filter already excludes null lastSignInDateTime, so the redundant null check in the loop is unnecessary; never-signed-in enabled accounts (arguably stale) are silently dropped"
+        ],
+        "strengths": [
+          "CSV output columns exactly match the requested UPN, DisplayName, LastSignInDateTime, AccountEnabled",
+          "Clean structure with try/finally, Disconnect-MgGraph cleanup, and timestamped output file",
+          "Uses real, correct modules (Microsoft.Graph.Authentication and Microsoft.Graph.Users)"
+        ],
+        "verdict": "Well-structured and readable but technically flawed \u2014 the invented -ClientSecret parameter, missing AuditLog.Read.All permission, missing -Property/-ConsistencyLevel for signInActivity, and lack of paging mean the script will not run correctly without significant edits."
+      }
+    },
+    {
+      "model": "phi4:14b",
+      "prompt": "ps-graph-stale-users",
+      "prompt_text": "Write a PowerShell script using Microsoft Graph that finds all Entra ID user accounts that have not signed in for 90 days and are still enabled. Export results to a CSV with columns: UPN, DisplayName, LastSignInDateTime, AccountEnabled.",
+      "phase": "warm",
+      "run": 1,
+      "thinking": false,
+      "response_text": "To accomplish this task, you'll need to use the Microsoft Graph PowerShell module to interact with Azure Active Directory (formerly known as Entra ID). This script will authenticate using OAuth2, query for users who have not signed in for 90 days but are still enabled, and then export the results to a CSV file. Ensure that you have the necessary permissions and that the Microsoft Graph PowerShell SDK is installed.\n\n### Prerequisites:\n1. **Install the Microsoft Graph PowerShell Module:**\n   ```powershell\n   Install-Module -Name Microsoft.Graph -Scope CurrentUser\n   ```\n\n2. **Register an application in Azure AD** with appropriate API permissions (e.g., `User.Read.All`, `AuditLog.Read.All`). Download and securely store the client ID, tenant ID, and client secret.\n\n3. **Grant admin consent** for these permissions within your Azure AD.\n\n4. **Install required modules:**\n   ```powershell\n   Install-Module -Name Microsoft.Graph.Authentication\n   ```\n\n### PowerShell Script:\n\n```powershell\n# Import the necessary module\nImport-Module Microsoft.Graph.Authentication\n\n# Define application registration details\n$clientId = \"YOUR_CLIENT_ID\"\n$clientSecret = \"YOUR_CLIENT_SECRET\"\n$tenantId = \"YOUR_TENANT_ID\"\n\n# Authenticate using OAuth2 client credentials flow\nConnect-MgGraph -ClientId $clientId -ClientSecret $clientSecret -TenantId $tenantId -Scopes \"User.Read.All\", \"AuditLog.Read.All\"\n\n# Calculate the date 90 days ago from today\n$cutoffDate = (Get-Date).AddDays(-90)\n\n# Query users who are enabled and have not signed in for 90 days\n$users = Get-MgUser -Filter \"accountEnabled eq true\" | ForEach-Object {\n    $userPrincipalName = $_.UserPrincipalName\n\n    # Get the last sign-in date using audit logs\n    $signInLogs = Get-MgAuditLogSignInByTargetId -UserId $_.Id | Sort-Object -Property CreatedDateTime -Descending | Select-Object -First 1\n\n    if ($null -ne $signInLogs) {\n        $lastSignInDate = $signInLogs.CreatedDateTime\n    } else {\n        # If no sign-in logs are found, set to a default past date\n        $lastSignInDate = [datetime]::MinValue\n    }\n\n    # Check if the last sign-in was more than 90 days ago\n    if ($lastSignInDate -lt $cutoffDate) {\n        [PSCustomObject]@{\n            UPN         = $userPrincipalName\n            DisplayName = $_.DisplayName\n            LastSignInDateTime = $lastSignInDate\n            AccountEnabled   = $_.AccountEnabled\n        }\n    }\n}\n\n# Export the results to a CSV file\n$users | Export-Csv -Path \"InactiveUsers.csv\" -NoTypeInformation\n\n# Disconnect from Microsoft Graph session\nDisconnect-MgGraph\n```\n\n### Explanation:\n- **Authentication:** Uses OAuth2 client credentials flow for authentication.\n- **User Filtering:** Filters users who are enabled (`accountEnabled eq true`) and checks their last sign-in date using the audit logs.\n- **Audit Logs:** Queries the `SignInLogs` to find the most recent login attempt. If no log is found, it assumes they haven't signed in.\n- **Date Comparison:** Compares the last sign-in date with a cutoff date (90 days ago).\n- **Export:** Exports the filtered users to a CSV file named `InactiveUsers.csv`.\n\n### Important Notes:\n- Ensure you have the necessary permissions to read user and audit log data.\n- Handle sensitive information like client secrets securely.\n- Adjust the script as needed for your specific environment or requirements.",
+      "tokens_per_second": 22.02,
+      "wall_seconds": 34.85324525900069,
+      "eval_count": 763,
+      "scores": {
+        "accuracy": 3,
+        "completeness": 5,
+        "format": 7,
+        "hallucination_risk": 2,
+        "overall": 3,
+        "issues": [
+          "Get-MgAuditLogSignInByTargetId is a non-existent/hallucinated cmdlet; the real Microsoft.Graph module has no such command",
+          "Connect-MgGraph does not accept a -ClientSecret parameter; app-only auth requires -ClientSecretCredential (a PSCredential) or certificate-based auth",
+          "-Scopes is ignored in client-credentials flow; permissions come from the app registration consent, not runtime scopes",
+          "Does not use the correct approach: signInActivity property via Get-MgUser -Property signInActivity with -Filter 'signInActivity/lastSignInDateTime le <date>'",
+          "Per-user audit log lookup for every enabled user is extremely inefficient and would be throttled at scale",
+          "Get-MgUser without -All only returns the first page of users, silently missing most accounts",
+          "Audit log retention is only ~30 days, so a 90-day lookback via sign-in logs is fundamentally unreliable"
+        ],
+        "strengths": [
+          "Output structure and CSV columns (UPN, DisplayName, LastSignInDateTime, AccountEnabled) match the request exactly",
+          "Clean, well-commented, paste-ready formatting with prerequisites and explanation"
+        ],
+        "verdict": "Fails because it relies on a fabricated cmdlet and an invalid Connect-MgGraph parameter, plus an unreliable audit-log approach, making it unusable without major rewrite."
+      }
+    },
+    {
+      "model": "qwen3.6:35b",
+      "prompt": "ga-deprecated-module",
+      "prompt_text": "Write a PowerShell script that finds all enabled Entra ID users who have not signed in for 60 days and disables their accounts. IMPORTANT: Use only the Microsoft.Graph PowerShell module. Do NOT use the AzureAD module (deprecated) or MSOnline module (retired). Use Get-MgUser with -Filter and -Property. Include the correct Graph permission scope required.",
+      "phase": "cold",
+      "run": 1,
+      "thinking": false,
+      "response_text": "Here is a production-ready PowerShell script that meets all your requirements. It uses exclusively the `Microsoft.Graph` module, leverages `Get-MgUser` with `-Filter` and `-Property`, applies safe date/timezone handling, and includes the exact Microsoft Graph permissions required.\n\n```powershell\n<#\n.SYNOPSIS\n    Finds enabled Entra ID users with no sign-in activity in the last 60 days and disables their accounts.\n.DESCRIPTION\n    Uses ONLY the Microsoft.Graph PowerShell module. Retrieves enabled users via Get-MgUser, \n    filters locally for 60-day inactivity, and disables them using Update-MgUser.\n.NOTES\n    Required Graph Scopes: User.Read.All, User.EnableDisable.All\n    Required Entra ID Role: Global Administrator or Identity Administrator\n#>\n\n[CmdletBinding()]\nparam(\n    [int]$DaysInactive = 60\n)\n\n# Ensure we are connected to Microsoft Graph with the required scopes\n$graphContext = Get-MgContext -ErrorAction SilentlyContinue\nif (-not $graphContext) {\n    Write-Host \"Connecting to Microsoft Graph...\" -ForegroundColor Cyan\n    Connect-MgGraph -Scopes \"User.Read.All\", \"User.EnableDisable.All\" -NoWelcome\n}\n\n# Calculate cutoff date in UTC for accurate comparison with Graph API timestamps\n$cutoffOffset = [DateTimeOffset]::UtcNow.AddDays(-$DaysInactive)\n\nWrite-Host \"Retrieving enabled users...\" -ForegroundColor Cyan\n# Retrieve all enabled users. The Graph API does not support server-side filtering by signInActivity,\n# so we use -Filter for accountEnabled and apply the 60-day threshold locally in PowerShell.\n$enabledUsers = Get-MgUser `\n    -Filter \"accountEnabled eq true\" `\n    -Property \"id\", \"displayName\", \"userPrincipalName\", \"signInActivity\" `\n    -All\n\nWrite-Host \"Evaluating sign-in activity for the last $($DaysInactive) days...\" -ForegroundColor Cyan\n$inactiveUsers = foreach ($user in $enabledUsers) {\n    $lastSignInStr = $user.SignInActivity?.LastSignInDateTime\n    \n    # Users with no sign-in record are considered inactive (never signed in or account was disabled previously)\n    if ([string]::IsNullOrWhiteSpace($lastSignInStr)) {\n        $isInactive = $true\n    } else {\n        $signInOffset = [DateTimeOffset]::Parse($lastSignInStr)\n        $isInactive = ($signInOffset -lt $cutoffOffset)\n    }\n\n    if ($isInactive) {\n        Write-Host \"Found inactive user: $($user.UserPrincipalName)\" -ForegroundColor Yellow\n        [PSCustomObject]@{\n            Id              = $user.Id\n            UserPrincipalName = $user.UserPrincipalName\n            DisplayName     = $user.DisplayName\n        }\n    }\n}\n\nif ($inactiveUsers.Count -eq 0) {\n    Write-Host \"No enabled users found who have been inactive for the last $($DaysInactive) days.\" -ForegroundColor Green\n    exit\n}\n\nWrite-Host \"Disabling $($inactiveUsers.Count) inactive user(s)...\" -ForegroundColor Red\nforeach ($user in $inactiveUsers) {\n    try {\n        # Set -WhatIf:$false to actually disable accounts. Use -WhatIf to preview changes first.\n        Update-MgUser -UserId $user.Id -AccountEnabled $false -WhatIf:$false\n        Write-Host \"Successfully disabled: $($user.UserPrincipalName)\" -ForegroundColor Green\n    } catch {\n        Write-Warning \"Failed to disable user $($user.UserPrincipalName): $_\"\n    }\n}\n\nWrite-Host \"Operation complete. Disconnecting from Graph...\" -ForegroundColor Gray\nDisconnect-MgGraph -ErrorAction SilentlyContinue\n```\n\n### \ud83d\udd11 Important Implementation Notes:\n1. **Permissions Required:** The script requests `User.Read.All` (to read user properties) and `User.EnableDisable.All` (to toggle the `accountEnabled` flag). Run `Connect-MgGraph` interactively or use a service principal with these scopes consented in Entra ID.\n2. **API Filter Limitation:** Microsoft Graph v1.0 `/users` endpoint **does not support server-side filtering by `signInActivity/lastSignInDateTime`** via OData. The script correctly uses `-Filter \"accountEnabled eq true\"` to narrow the initial dataset, then safely filters the 60-day threshold locally in PowerShell. This is the recommended and supported approach by Microsoft.\n3. **Timezone Safety:** Graph API returns sign-in timestamps as UTC ISO 8601 strings. The script uses `[DateTimeOffset]::Parse()` for timezone-agnostic comparison to prevent false positives during DST transitions.\n4. **Safety Recommendation:** Change `-WhatIf:$false` to `-WhatIf` in the `Update-MgUser` line before production use to preview which accounts will be modified without applying changes.\n\n### \ud83d\udce6 Prerequisites:\n```powershell\nInstall-Module Microsoft.Graph -Force\nImport-Module Microsoft.Graph\n# Then run the script as an account with Global Admin or Identity Admin rights.\n```",
+      "tokens_per_second": 51.58,
+      "wall_seconds": 121.77065453199975,
+      "eval_count": 5789,
+      "scores": {
+        "accuracy": 5,
+        "completeness": 8,
+        "format": 8,
+        "hallucination_risk": 5,
+        "overall": 6,
+        "issues": [
+          "Missing AuditLog.Read.All scope, which is REQUIRED to read the signInActivity property via Get-MgUser; with only User.Read.All the signInActivity field will be null/inaccessible.",
+          "'User.EnableDisable.All' is not a valid Graph permission name \u2014 the correct scope is 'User.ReadWrite.All' (or the newer 'User-EnableDisableAccount.All' with a hyphen). The stated scope is fabricated/incorrect.",
+          "The claim that Graph v1.0 does not support server-side filtering on signInActivity/lastSignInDateTime is outdated \u2014 advanced queries (ConsistencyLevel: eventual with $count) now support it.",
+          "Successfully met the no-deprecated-module requirement, but the permissions section (the explicit ask) is partly wrong."
+        ],
+        "strengths": [
+          "Exclusively uses Microsoft.Graph cmdlets (Get-MgUser, Update-MgUser, Connect-MgGraph), correctly avoiding AzureAD/MSOnline as required.",
+          "Uses Get-MgUser with -Filter and -Property as instructed, with -All paging.",
+          "Robust handling of null/never-signed-in users and timezone-safe DateTimeOffset comparison.",
+          "Clean, well-commented, paste-ready script with WhatIf safety guidance and prerequisites."
+        ],
+        "verdict": "A well-structured, paste-ready script that satisfies the module and cmdlet requirements, but it states an invented permission scope (User.EnableDisable.All) and omits the required AuditLog.Read.All scope for reading signInActivity, so the permissions answer needs correction before production use."
+      }
+    },
+    {
+      "model": "qwen3.6:35b",
+      "prompt": "ga-deprecated-module",
+      "prompt_text": "Write a PowerShell script that finds all enabled Entra ID users who have not signed in for 60 days and disables their accounts. IMPORTANT: Use only the Microsoft.Graph PowerShell module. Do NOT use the AzureAD module (deprecated) or MSOnline module (retired). Use Get-MgUser with -Filter and -Property. Include the correct Graph permission scope required.",
+      "phase": "warm",
+      "run": 1,
+      "thinking": false,
+      "response_text": "Here is a complete, production-ready PowerShell script that meets all your requirements using **only** the `Microsoft.Graph` module.\n\n### \ud83d\udd10 Required Microsoft Graph Permissions\nTo run this script successfully, you must have an account with one of the following roles or delegated permissions:\n- `User.Read.All` \u2192 To read user profiles and `signInActivity`\n- `User.ManageIdentities.All` \u2192 To disable user accounts\n*(Note: These scopes require admin consent in your Azure tenant.)*\n\n### \ud83d\udcdc PowerShell Script\n```powershell\n#requires -Modules Microsoft.Graph.Users\n\n# 1. Connect to Microsoft Graph with required scopes\n$scopes = \"User.Read.All\", \"User.ManageIdentities.All\"\nConnect-MgGraph -Scopes $scopes | Out-Null\n\nWrite-Host \"Connected to Microsoft Graph.\" -ForegroundColor Green\n\n# 2. Define the 60-day threshold\n$cutoffDate = (Get-Date).AddDays(-60)\n\nWrite-Host \"Searching for enabled users with no sign-in activity in the last 60 days...\" -ForegroundColor Cyan\n\n# 3. Retrieve enabled users and fetch signInActivity property\n# \u26a0\ufe0f IMPORTANT GRAPH API NOTE: Microsoft Graph does NOT support server-side OData filtering \n# on signInActivity. We use -Filter for accountEnabled, fetch signInActivity via -Property, \n# and filter client-side in PowerShell.\n$usersToProcess = Get-MgUser -Filter \"accountEnabled eq true\" -Property signInActivity -All\n\n$disabledCount = 0\n$skippedCount = 0\n\nforeach ($user in $usersToProcess) {\n    # Skip users with zero recorded sign-in activity (never logged in or data unavailable)\n    if (-not $user.SignInActivity -or $null -eq $user.SignInActivity.lastSignInDateTime) {\n        Write-Host \"$($user.DisplayName) | No sign-in history found. Skipping.\" -ForegroundColor Yellow\n        $skippedCount++\n        continue\n    }\n\n    # Parse the ISO 8601 timestamp returned by Graph\n    $lastLogin = Get-Date $user.SignInActivity.lastSignInDateTime\n\n    if ($lastLogin -lt $cutoffDate) {\n        Write-Host \"Disabling: $($user.UserPrincipalName) | Last login: $lastLogin\" -ForegroundColor Red\n        \n        try {\n            Update-MgUser -UserId $user.Id -AccountEnabled $false\n            Write-Host \"Successfully disabled account.\" -ForegroundColor Green\n            $disabledCount++\n        }\n        catch {\n            Write-Warning \"Failed to disable $($user.UserPrincipalName): $_\"\n        }\n    }\n}\n\nWrite-Host \"`n----------------------------------------`n\" -ForegroundColor White\nWrite-Host \"Operation Complete:\" -ForegroundColor Cyan\nWrite-Host \"- Accounts disabled: $disabledCount\" -ForegroundColor Green\nWrite-Host \"- Accounts skipped (no sign-in history): $skippedCount\" -ForegroundColor Yellow\n\n# 4. Clean up session\nDisconnect-MgGraph | Out-Null\n```\n\n### \ud83d\udee1\ufe0f Important Implementation Notes\n1. **Server-Side Filtering Limitation**: Microsoft Graph API v1.0 **does not support** filtering users by `signInActivity` on the server. Attempting `-Filter \"signInActivity/lastSignInDateTime lt ...\" + returns `400 Bad Request`. The script correctly uses `-Filter` for `accountEnabled`, fetches sign-in data via `-Property signInActivity`, and applies the 60-day rule client-side. This is the officially supported approach.\n2. **Safety Recommendation**: Before running in production, comment out the `Update-MgUser` line and uncomment a test block to verify which accounts would be affected:\n   ```powershell\n   # Write-Host \"WOULD DISABLE: $($user.UserPrincipalName) (Last login: $lastLogin)\" -ForegroundColor Cyan\n   ```\n3. **Tenant Admin Consent**: After assigning `User.Read.All` and `User.ManageIdentities.All`, ensure they are consented by a Global Administrator in the Azure Portal or via PowerShell (`Grant-MgOauth2PermissionGrant`).\n4. **Module Version**: This script requires `Microsoft.Graph` v1.27+ (preferably v2.x). Install/Update with: `Install-Module Microsoft.Graph -Force -Scope CurrentUser`",
+      "tokens_per_second": 51.75,
+      "wall_seconds": 94.65252312200028,
+      "eval_count": 4882,
+      "scores": {
+        "accuracy": 6,
+        "completeness": 8,
+        "format": 9,
+        "hallucination_risk": 8,
+        "overall": 6,
+        "issues": [
+          "Missing AuditLog.Read.All scope, which is REQUIRED (alongside User.Read.All) to read the signInActivity property \u2014 without it the script returns null sign-in data for all users and disables no one or skips everyone.",
+          "Wrong scope for disabling accounts: updating accountEnabled requires User.ReadWrite.All (or User.EnableDisableAccount.All), not User.ManageIdentities.All, which governs identity/federation management instead.",
+          "The claim that Graph 'does not support' server-side filtering on signInActivity is now outdated \u2014 recent Graph supports filtering lastSignInDateTime with ConsistencyLevel=eventual and $count, though the client-side approach still works.",
+          "Get-Date parsing of an already-DateTime property is unnecessary but harmless."
+        ],
+        "strengths": [
+          "Correctly uses only the Microsoft.Graph module (Microsoft.Graph.Users) with real cmdlets: Connect-MgGraph, Get-MgUser, Update-MgUser, Disconnect-MgGraph.",
+          "Uses -Filter for accountEnabled and -Property signInActivity as requested, with sensible client-side date comparison.",
+          "Includes error handling, dry-run safety guidance, null-checks for users with no sign-in history, and clean summary output.",
+          "Well-formatted, paste-ready script with helpful inline comments."
+        ],
+        "verdict": "A clean, well-structured script using correct Microsoft.Graph cmdlets, but it omits the mandatory AuditLog.Read.All scope needed to actually read signInActivity and names the wrong write scope for disabling accounts, so it needs scope corrections before it will work in production."
+      }
+    },
+    {
+      "model": "qwen3.6:35b",
+      "prompt": "ga-error-handling",
+      "prompt_text": "Write a PowerShell function using Microsoft.Graph that resets a user's MFA authentication methods by removing all registered methods and returns a structured result object. Include: try/catch around each Graph call, specific handling for 404 (user not found) and 403 (insufficient permissions), a revert log entry written before any destructive action, and a return object with properties: Success (bool), UserId, MethodsRemoved (int), Error (string). Do not use Write-Host \u2014 use Write-Verbose for progress and return the object.",
+      "phase": "cold",
+      "run": 1,
+      "thinking": false,
+      "response_text": "Here is a production-ready PowerShell function that meets all your specifications. It uses the modern `Microsoft.Graph` SDK, strictly avoids `Write-Host`, implements granular try/catch blocks, handles HTTP 404/403 explicitly, generates an audit/revert log before deletions, and returns exactly the requested structured object.\n\n```powershell\nfunction Reset-UserMFA {\n    [CmdletBinding()]\n    [OutputType([PSCustomObject])]\n    param(\n        [Parameter(Mandatory = $true, ValueFromPipeline = $true)]\n        [string]$UserId\n    )\n    process {\n        # Initialize structured result object\n        $result = [PSCustomObject]@{\n            Success        = $false\n            UserId         = $UserId\n            MethodsRemoved = 0\n            Error          = ''\n        }\n\n        try {\n            Write-Verbose \"Initiating MFA reset process for user: $UserId\"\n\n            # Graph Call 1: Retrieve all registered authentication methods\n            $methods = @()\n            try {\n                $methods = Get-MgUserAuthenticationMethod -UserId $UserId -All -ErrorAction Stop\n            } catch {\n                $result.Error = Format-GraphError $_ \"Retrieval of authentication methods\"\n                return $result\n            }\n\n            # Early exit if no methods are registered\n            if (-not $methods) {\n                Write-Verbose \"No MFA methods found for user. Skipping destructive phase.\"\n                $result.Success = $true\n                return $result\n            }\n\n            # Revert/Audit log entry generated BEFORE any destructive action\n            $revertLogEntry = @\"\n[REVERT_LOG:MFA_RESET]\nAction: Authentication Methods Removal (Reset)\nTarget UserId: $UserId\nTimestamp: $(Get-Date -Format 'o')\nPre-Removal State: Method IDs = @($( ($methods.Id | ForEach-Object { \"'$_'\" }) -join ', '))\nRecovery Note: All registered MFA methods have been purged. User will be prompted to re-register on next sign-in.\nManual Audit ID: $([Guid]::NewGuid().ToString())\n==================================================\n\"@\n            Write-Verbose $revertLogEntry\n\n            # Graph Call 2: Iterate and remove each authentication method\n            $removedCount = 0\n            foreach ($method in $methods) {\n                try {\n                    Write-Verbose \"Removing authentication method ID: $($method.Id)\"\n                    Remove-MgUserAuthenticationMethod -UserId $UserId -AuthenticationMethodId $method.Id -ErrorAction Stop\n                    $removedCount++\n                } catch {\n                    # Capture per-method failure but continue processing remaining methods if not critical\n                    $methodErr = Format-GraphError $_ \"Removal of $($method.Id)\"\n                    Write-Warning \"Failed to remove method $($method.Id): $methodErr\"\n                    $result.Error = $methodErr\n                }\n            }\n\n            # Success path\n            $result.Success = ($result.MethodsRemoved -gt 0) -or ($methods.Count -eq 0)\n            $result.MethodsRemoved = $removedCount\n            Write-Verbose \"MFA reset completed. Successfully removed $removedCount method(s).\"\n        } catch {\n            # Fallback for unexpected non-graph-specific errors\n            if ([string]::IsNullOrEmpty($result.Error)) {\n                $result.Error = Format-GraphError $_ \"General execution\"\n            }\n        }\n\n        return $result\n    }\n}\n\nfunction Format-GraphError {\n    [CmdletBinding()]\n    param(\n        [System.Exception]$Exception,\n        [string]$Context\n    )\n    \n    # Extract HTTP status code from Microsoft.Graph SDK exceptions (v1 & v2 compatible)\n    $statusCode = $null\n    if ($Exception -is [Microsoft.Graph.PowerShell.Models.MicrosoftGraphHttpErrorInfo]) {\n        $statusCode = $Exception.StatusCode\n    } elseif ($Exception.InnerException.Response.StatusCode) {\n        $statusCode = [int]$Exception.InnerException.Response.StatusCode\n    }\n\n    # Specific handling for 404 and 403 as requested\n    if ($statusCode -eq 404 -or $Exception.Message -match '.*user not found.*|.*not found in directory.*' -i) {\n        return \"User not found (404). Verify the UserId and ensure the user exists in Azure AD.\"\n    }\n    if ($statusCode -eq 403 -or $Exception.Message -match '.*permission denied.*|.*insufficient privileges.*|.*authorization failed.*' -i) {\n        return \"Insufficient permissions (403). Ensure you have User.AuthenticationMethod.ReadWrite.All or equivalent directory permissions.\"\n    }\n\n    # Default fallback for other HTTP or runtime errors\n    return \"Error during $Context: $($Exception.Message)\"\n}\n```\n\n### Key Implementation Details:\n1. **Strict Return Object**: Returns exactly `{ Success, UserId, MethodsRemoved, Error }` with typed properties as requested.\n2. **Granular Try/Catch**: Each `Microsoft.Graph` cmdlet (`Get-MgUserAuthenticationMethod` and `Remove-MgUserAuthenticationMethod`) is wrapped in its own try/catch block to isolate failures and continue processing where appropriate.\n3. **404/403 Handling**: The `Format-GraphError` helper explicitly checks the Graph SDK's `.StatusCode` property and falls back to regex message parsing for robustness across module versions. Maps directly to your requested strings.\n4. **Pre-Destructive Revert Log**: Generated as a structured audit block with timestamps, pre-deletion IDs, and a manual recovery note before entering the removal loop. Output via `Write-Verbose` per constraints.\n5. **No `Write-Host`**: All console output uses `Write-Verbose` (for progress) and `Write-Warning` (for non-fatal removal failures). The function returns only the structured object.\n6. **Usage Note**: Requires an active `Connect-MgGraph` session with `User.AuthenticationMethod.ReadWrite.All` application permission. The `-All` parameter on retrieval ensures pagination handles users with multiple registered methods.",
+      "tokens_per_second": 51.6,
+      "wall_seconds": 148.19888098499723,
+      "eval_count": 7189,
+      "scores": {
+        "accuracy": 4,
+        "completeness": 8,
+        "format": 6,
+        "hallucination_risk": 4,
+        "overall": 5,
+        "issues": [
+          "Remove-MgUserAuthenticationMethod is not a real cmdlet in the Microsoft.Graph module; methods must be removed via type-specific cmdlets (e.g., Remove-MgUserAuthenticationPhoneMethod, Remove-MgUserAuthenticationMicrosoftAuthenticatorMethod) \u2014 this core destructive call will fail.",
+          "Logic bug: $result.Success is evaluated using $result.MethodsRemoved before $result.MethodsRemoved is assigned $removedCount, so Success will be false even on successful removals.",
+          "Invalid syntax: `-match '...' -i` is not valid PowerShell; -match is case-insensitive by default and the trailing -i will cause a parse/runtime error.",
+          "Reliance on regex message-parsing for 404/403 is brittle and may misclassify errors.",
+          "MicrosoftGraphHttpErrorInfo type check is unreliable; Graph SDK exceptions are typically ODataErrors/HttpResponseException with different status extraction."
+        ],
+        "strengths": [
+          "Implements per-call try/catch and a top-level fallback as requested.",
+          "Returns exactly the specified structured object (Success, UserId, MethodsRemoved, Error).",
+          "Writes a pre-destructive revert/audit log before removal and uses Write-Verbose/Write-Warning instead of Write-Host.",
+          "Explicitly addresses 404 and 403 with descriptive guidance and notes the required Graph scope."
+        ],
+        "verdict": "Well-structured and complete in intent, but it relies on a non-existent cmdlet (Remove-MgUserAuthenticationMethod), contains a Success-flag logic bug, and an invalid -match -i syntax, so it cannot run as-is and needs significant correction."
+      }
+    },
+    {
+      "model": "qwen3.6:35b",
+      "prompt": "ga-error-handling",
+      "prompt_text": "Write a PowerShell function using Microsoft.Graph that resets a user's MFA authentication methods by removing all registered methods and returns a structured result object. Include: try/catch around each Graph call, specific handling for 404 (user not found) and 403 (insufficient permissions), a revert log entry written before any destructive action, and a return object with properties: Success (bool), UserId, MethodsRemoved (int), Error (string). Do not use Write-Host \u2014 use Write-Verbose for progress and return the object.",
+      "phase": "warm",
+      "run": 1,
+      "thinking": false,
+      "response_text": "```powershell\nfunction Reset-UserMFA {\n    [CmdletBinding()]\n    param(\n        [Parameter(Mandatory = $true)]\n        [ValidateNotNullOrEmpty()]\n        [string]$UserId,\n\n        [Parameter(Mandatory = $false)]\n        [string]$RevertLogPath\n    )\n\n    # Initialize structured result object with explicit types\n    $result = [PSCustomObject]@{\n        [bool]Success        = $false\n        [string]UserId       = $UserId\n        [int]MethodsRemoved  = 0\n        [string]Error        = $null\n    }\n\n    Write-Verbose \"Starting MFA reset process for user: $UserId\"\n\n    # Helper to safely extract HTTP status code from Microsoft.Graph exceptions\n    function Get-GraphStatusCode {\n        param($Exception)\n        try { return [int]$Exception.Exception.Response.StatusCode } catch { }\n        if ($Exception.ErrorDetails.Code -match \"^\\d{3}$\") { return [int]$Exception.ErrorDetails.Code }\n        return $null\n    }\n\n    # Helper to set error and return result\n    function Set-ResultError {\n        param($Res, $Msg)\n        $Res.Error = $Msg\n        return $Res\n    }\n\n    # 1. Verify Graph Context (Graph call)\n    try {\n        Get-MgContext | Out-Null\n    } catch [System.Exception] {\n        return Set-ResultError $result \"Not connected to Microsoft Graph. Run Connect-MgGraph first.\"\n    }\n\n    # 2. Fetch current MFA methods (Graph call: non-destructive)\n    Write-Verbose \"Fetching registered authentication methods...\"\n    $currentMethods = $null\n    try {\n        $currentMethods = Get-MgUserAuthenticationMethod -UserId $UserId -All\n    } catch [Microsoft.Graph.PowerShell.Runtime.RestException] {\n        $code = Get-GraphStatusCode $_\n        if ($code -eq 403) { return Set-ResultError $result \"Insufficient permissions to read MFA methods (403).\" }\n        if ($code -eq 404) { return Set-ResultError $result \"User not found. Cannot read MFA methods (404).\" }\n        return Set-ResultError $result \"Failed to fetch MFA methods: $($_.Exception.Message)\"\n    } catch [System.Exception] {\n        return Set-ResultError $result \"Unexpected error fetching MFA methods: $($_.Exception.Message)\"\n    }\n\n    # 3. Write revert log entry BEFORE any destructive action\n    if ($currentMethods) {\n        try {\n            if (-not $RevertLogPath) {\n                $RevertLogPath = Join-Path $env:TEMP \"MFA_Reset_Revert_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv\"\n            }\n            # Create a structured log entry containing backup data for potential restoration\n            $revertData = foreach ($m in $currentMethods) {\n                [PSCustomObject]@{\n                    Action           = \"MFA_METHOD_BACKUP\"\n                    UserId           = $UserId\n                    Timestamp        = (Get-Date).ToString(\"yyyy-MM-dd HH:mm:ss\")\n                    MethodId         = $m.Id\n                    DisplayName      = $m.DisplayName\n                    Type             = $m.AdditionalProperties.'@odata.type'\n                    CreatedDateTime  = $m.CreatedDateTime\n                }\n            }\n            $revertData | Export-Csv -Path $RevertLogPath -NoTypeInformation -Encoding UTF8\n            Write-Verbose \"Revert log entry written to: $RevertLogPath\"\n        } catch [System.Exception] {\n            Write-Verbose \"Warning: Failed to write revert log. Proceeding with removal. Error: $_.Exception.Message\"\n        }\n    } else {\n        Write-Verbose \"No registered MFA methods found for this user.\"\n        $result.Success = $true\n        return $result\n    }\n\n    # 4. Remove each method (Destructive action: Graph call inside loop)\n    if ($null -eq $currentMethods) { $currentMethods = @() }\n    foreach ($method in $currentMethods) {\n        try {\n            Write-Verbose \"Removing authentication method: $($method.Id)\"\n            Remove-MgUserAuthenticationMethod -UserId $UserId -AuthenticationMethodId $method.Id -Confirm:$false | Out-Null\n            $result.MethodsRemoved++\n        } catch [Microsoft.Graph.PowerShell.Runtime.RestException] {\n            $code = Get-GraphStatusCode $_\n            if ($code -eq 403) { $result.Error += \"Insufficient permissions to remove method $($method.Id) (403). \" }\n            elseif ($code -eq 404) { $result.Error += \"User or method not found during removal of $($method.Id) (404). \" }\n            else { $result.Error += \"Graph API error removing $($method.Id): $($_.Exception.Message) \" }\n        } catch [System.Exception] {\n            $result.Error += \"Unexpected error removing $($method.Id): $($_.Exception.Message) \"\n        }\n    }\n\n    # 5. Finalize result state and return\n    if ([string]::IsNullOrEmpty($result.Error)) {\n        $result.Success = $true\n    } else {\n        $result.Error = $result.Error.TrimEnd(\" \")\n    }\n\n    Write-Verbose \"Reset process completed. Success: $($result.Success) | MethodsRemoved: $($result.MethodsRemoved)\"\n    return $result\n}\n```",
+      "tokens_per_second": 51.17,
+      "wall_seconds": 170.89444584599914,
+      "eval_count": 8725,
+      "scores": {
+        "accuracy": 4,
+        "completeness": 8,
+        "format": 5,
+        "hallucination_risk": 4,
+        "overall": 5,
+        "issues": [
+          "The PSCustomObject is initialized with type-accelerated keys (e.g. `[bool]Success = $false`) which is invalid PowerShell and will cause a parse error \u2014 the function will not run as written.",
+          "Remove-MgUserAuthenticationMethod is not a real generic cmdlet; the Graph API has no DELETE on the base authenticationMethod resource, so removal must use type-specific cmdlets (Remove-MgUserAuthenticationPhoneMethod, etc.). This is likely a fabricated cmdlet.",
+          "The exception type Microsoft.Graph.PowerShell.Runtime.RestException is uncertain and may not catch real SDK exceptions reliably.",
+          "In the Write-Verbose warning, `$_.Exception.Message` inside a double-quoted string won't expand the property correctly (needs $($_.Exception.Message)).",
+          "Nested in-function helper definitions add complexity and reduce reusability."
+        ],
+        "strengths": [
+          "Addresses every explicit requirement: try/catch per call, distinct 403/404 handling, revert log written before destructive action, and the required return object properties.",
+          "Uses Write-Verbose throughout and avoids Write-Host as instructed.",
+          "Writes a structured backup/revert log (CSV) before performing destructive removal, enabling restoration.",
+          "Good defensive flow: connection check, non-destructive fetch first, per-method error accumulation."
+        ],
+        "verdict": "Well-structured and complete in intent, but an invalid type-annotated PSCustomObject literal breaks parsing and a likely non-existent Remove-MgUserAuthenticationMethod cmdlet make it usable only after significant correction."
+      }
+    },
+    {
+      "model": "qwen3.6:35b",
+      "prompt": "ps-graph-stale-users",
+      "prompt_text": "Write a PowerShell script using Microsoft Graph that finds all Entra ID user accounts that have not signed in for 90 days and are still enabled. Export results to a CSV with columns: UPN, DisplayName, LastSignInDateTime, AccountEnabled.",
+      "phase": "cold",
+      "run": 1,
+      "thinking": false,
+      "response_text": "Here's a complete, production-ready PowerShell script using the **Microsoft.Graph** module. It handles pagination, null sign-in dates, UTC conversion, and exports exactly to your requested format.\n\n### Prerequisites\n```powershell\n# Run once in an elevated/standard PowerShell session\nInstall-Module Microsoft.Graph.Users -Force -Scope CurrentUser\nImport-Module Microsoft.Graph.Users\n```\n\n### PowerShell Script\n```powershell\n#requires -Modules Microsoft.Graph.Users\n\nparam(\n    [string]$OutputFile = \"InactiveUsers_90Days.csv\"\n)\n\nWrite-Host \"[1/5] Connecting to Microsoft Graph...\" -ForegroundColor Cyan\nConnect-MgGraph -Scopes \"User.Read.All\"\n\n$cutoffDate = (Get-Date).ToUniversalTime().AddDays(-90)\nWrite-Host \"Cutoff date: $($cutoffDate.ToString('yyyy-MM-dd HH:mm:ss UTC'))\" -ForegroundColor DarkGray\n\n# Initialize Graph API URI with pagination support\n$uri = \"https://graph.microsoft.com/v1.0/users?`$filter=accountEnabled+eq+true&`$select=id,displayName,userPrincipalName,lastSignInDateTime,accountEnabled&`$top=999\"\n$allEnabledUsers = @()\n\nWrite-Host \"[2/5] Fetching enabled user accounts (paginated)...\" -ForegroundColor Yellow\ndo {\n    $response = Invoke-MgGraphRequest -Method GET -Uri $uri\n    $allEnabledUsers += $response.value\n    \n    if ($response.'@odata.nextLink') {\n        $uri = $response.'@odata.nextLink'\n    } else {\n        break\n    }\n} while ($true)\n\nWrite-Host \"[3/5] Evaluating sign-in history for $($allEnabledUsers.Count) accounts...\" -ForegroundColor Yellow\n\n$inactiveUsers = @()\nforeach ($user in $allEnabledUsers) {\n    $lastSignInUTC = $null\n    if ($user.lastSignInDateTime) {\n        try {\n            # Parse ISO8601 string and force UTC comparison\n            $lastSignInUTC = [datetime]::Parse($user.lastSignInDateTime).ToUniversalTime()\n        } catch {\n            Write-Warning \"Failed to parse date for $($user.userPrincipalName): $($user.lastSignInDateTime)\"\n        }\n    }\n\n    # Mark as inactive if never signed in OR last sign-in is older than 90 days\n    if ($null -eq $lastSignInUTC -or $lastSignInUTC -lt $cutoffDate) {\n        $inactiveUsers += [PSCustomObject]@{\n            UPN = $user.userPrincipalName\n            DisplayName = $user.displayName\n            LastSignInDateTime = if ($lastSignInUTC) { $lastSignInUTC.ToString(\"yyyy-MM-dd HH:mm:ss\") } else { \"Never\" }\n            AccountEnabled = $user.accountEnabled\n        }\n    }\n}\n\nif ($inactiveUsers.Count -gt 0) {\n    $csvPath = Join-Path (Get-Location).Path $OutputFile\n    Write-Host \"[4/5] Exporting $($inactiveUsers.Count) inactive accounts to CSV...\" -ForegroundColor Cyan\n    \n    $inactiveUsers | Export-Csv -Path $csvPath -NoTypeInformation -Encoding UTF8\n    Write-Host \"[5/5] Success! Results saved to: $csvPath\" -ForegroundColor Green\n} else {\n    Write-Host \"No enabled users found that haven't signed in for 90 days.\" -ForegroundColor Yellow\n}\n\nDisconnect-MgGraph\n```\n\n### Key Features & Notes\n| Feature | Implementation |\n|---------|----------------|\n| **Pagination** | Explicitly loops through `@odata.nextLink` to handle tenants with >1,000 enabled users |\n| **Date Handling** | Parses Graph's ISO8601 strings, forces UTC conversion, and safely handles `\"Never\"` (null) sign-ins |\n| **Filtering Logic** | Catches both users who **never signed in** and those whose last sign-in is **>90 days ago** |\n| **Exact Output** | Matches requested columns: `UPN`, `DisplayName`, `LastSignInDateTime`, `AccountEnabled` |\n| **Permissions** | Uses `User.Read.All` (sufficient for directory read). Run as a Global Admin or Directory Reader for best results |\n\n### How to Run\n1. Save as `Get-InactiveEntraUsers.ps1`\n2. Open PowerShell 5.1 or 7+\n3. Execute: `.\\Get-InactiveEntraUsers.ps1 -OutputFile \"Users_Inactive_90Days.csv\"`\n4. Review the CSV in your working directory\n\n### \u26a0\ufe0f Important Considerations\n- **Large Tenants (>50k users):** Local filtering after fetch is accurate but may take 2-5 minutes. For enterprise scale, consider running this as a scheduled runbook via Azure Automation or using the Graph `/reports/getActiveUserDetails` endpoint for aggregated licensing/usage data instead of user object state.\n- **Conditional Access:** These accounts are still enabled and could authenticate if not restricted by CA policies. Always verify with HR/provisioning systems before disabling or removing.",
+      "tokens_per_second": 51.79,
+      "wall_seconds": 136.82844870600093,
+      "eval_count": 6632,
+      "scores": {
+        "accuracy": 4,
+        "completeness": 6,
+        "format": 8,
+        "hallucination_risk": 4,
+        "overall": 4,
+        "issues": [
+          "The script selects and reads 'lastSignInDateTime' as a top-level user property, but in Microsoft Graph last sign-in data lives under the 'signInActivity' object (signInActivity/lastSignInDateTime). As written, every user's lastSignInDateTime will be null, causing all enabled users to be reported as 'Never' signed in.",
+          "Missing the required 'AuditLog.Read.All' scope \u2014 'User.Read.All' alone is insufficient to read signInActivity data.",
+          "Filtering/selecting signInActivity properly typically requires the advanced query parameters (ConsistencyLevel: eventual header and $count) and historically the beta endpoint; none of this is addressed.",
+          "The $filter on accountEnabled combined with signInActivity selection often needs the eventual consistency header, which is absent."
+        ],
+        "strengths": [
+          "Clean, paste-ready structure with parameters, progress output, and proper CSV export matching the requested columns.",
+          "Correctly implements @odata.nextLink pagination and handles null/never-signed-in cases gracefully.",
+          "Good operational notes about large tenants, UTC handling, and verifying before disabling accounts."
+        ],
+        "verdict": "Well-structured and cleanly formatted, but it fails on the core requirement by reading a non-existent top-level 'lastSignInDateTime' property instead of 'signInActivity' and omits the needed AuditLog.Read.All scope, so the script would not actually identify stale users."
+      }
+    },
+    {
+      "model": "qwen3.6:35b",
+      "prompt": "ps-graph-stale-users",
+      "prompt_text": "Write a PowerShell script using Microsoft Graph that finds all Entra ID user accounts that have not signed in for 90 days and are still enabled. Export results to a CSV with columns: UPN, DisplayName, LastSignInDateTime, AccountEnabled.",
+      "phase": "warm",
+      "run": 1,
+      "thinking": false,
+      "response_text": "Here's a complete, production-ready PowerShell script using the modern `Microsoft.Graph` module. It handles pagination, null sign-in dates (accounts that have never signed in), date comparisons, and exports to your specified CSV format.\n\n```powershell\n<#\n.SYNOPSIS\n    Finds Entra ID users who are enabled but have not signed in for 90 days (configurable).\n.DESCRIPTION\n    Connects to Microsoft Graph, queries enabled users, filters by last sign-in date,\n    and exports results to a CSV file with the requested columns.\n.EXAMPLE\n    .\\Get-InactiveEntraIDUsers.ps1 -OutputCsvPath \"C:\\Reports\\InactiveUsers_90Days.csv\" -InactiveDays 90\n#>\n\nparam(\n    [string]$OutputCsvPath = \".\\InactiveEntraIDUsers_90Days.csv\",\n    [int]$InactiveDays = 90\n)\n\n# Ensure the Microsoft.Graph module is loaded\ntry {\n    Import-Module Microsoft.Graph -ErrorAction Stop\n} catch {\n    Write-Warning \"Microsoft.Graph module not found. Installing...\"\n    Install-Module Microsoft.Graph -Force -Scope CurrentUser -AllowClobber -Confirm:$false\n    Import-Module Microsoft.Graph\n}\n\n# Define required scopes for reading user sign-in data\n$scopes = @(\"User.Read.All\")\n\ntry {\n    Write-Host \"Connecting to Microsoft Graph...\" -ForegroundColor Cyan\n    Connect-MgGraph -Scopes $scopes\n    \n    # Calculate cutoff date in UTC (Graph API uses ISO 8601 UTC timestamps)\n    $cutoffDate = [DateTime]::UtcNow.AddDays(-$InactiveDays)\n    \n    Write-Host \"Fetching enabled user accounts...\" -ForegroundColor Cyan\n    # -All handles pagination automatically. -Property limits returned fields for performance.\n    $enabledUsers = Get-MgUser -Filter \"accountEnabled eq true\" -All -Property \"userPrincipalName,displayName,lastSignInDateTime,accountEnabled\"\n    \n    if (-not $enabledUsers) {\n        Write-Host \"No enabled user accounts found.\" -ForegroundColor Yellow\n        exit\n    }\n    \n    Write-Host \"Filtering users inactive for more than $InactiveDays days...\" -ForegroundColor Cyan\n    \n    # Filter: Last sign-in is null (never signed in) OR older than cutoff date\n    $inactiveUsers = $enabledUsers | Where-Object {\n        $null -eq $_.LastSignInDateTime -or [DateTime]::Parse($_.LastSignInDateTime) -lt $cutoffDate\n    }\n    \n    if ($inactiveUsers) {\n        # Format output to ensure consistent CSV columns and handle null dates gracefully\n        $report = $inactiveUsers | ForEach-Object {\n            [PSCustomObject]@{\n                UPN                = $_.UserPrincipalName\n                DisplayName        = $_.DisplayName\n                LastSignInDateTime = if ([string]::IsNullOrEmpty($_.LastSignInDateTime)) { \"Never\" } \n                                    else { [DateTime]::Parse($_.LastSignInDateTime).ToString(\"yyyy-MM-ddTHH:mm:ssZ\") }\n                AccountEnabled     = $_.AccountEnabled\n            }\n        }\n        \n        # Export to CSV with UTF-8 encoding and no type metadata\n        $report | Export-Csv -Path $OutputCsvPath -NoTypeInformation -Encoding UTF8\n        Write-Host \"Successfully exported $($report.Count) inactive user(s) to '$OutputCsvPath'\" -ForegroundColor Green\n    } else {\n        Write-Host \"No users found matching the criteria.\" -ForegroundColor Yellow\n    }\n}\ncatch {\n    Write-Error \"An error occurred: $_\"\n}\nfinally {\n    # Clean up Graph session\n    Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null\n}\n```\n\n### \ud83d\udccb How to Use\n1. Save the script as `Get-InactiveEntraIDUsers.ps1`\n2. Run it in PowerShell 5.1+ or PowerShell 7+:\n   ```powershell\n   .\\Get-InactiveEntraIDUsers.ps1 -OutputCsvPath \"C:\\reports\\inactive_users.csv\" -InactiveDays 90\n   ```\n\n### \ud83d\udd11 Important Notes\n| Aspect | Details |\n|--------|---------|\n| **Permissions Required** | `User.Read.All` delegated or application role. Requires a user with at least `Directory Readers` or `User Administrator` directory role. |\n| **Tenant Size Limit** | Client-side filtering (`Where-Object`) works well for most orgs (<10k enabled users). If your tenant exceeds ~8,000-10,000 enabled users, add server-side date filtering: `-Filter \"accountEnabled eq true and lastSignInDateTime lt '$($cutoffDate.ToString(\"yyyy-MM-ddTHH:mm:ssZ\"))'\"` to bypass the Graph 10k object query limit. |\n| **Never Signed-In Accounts** | The script correctly catches accounts where `lastSignInDateTime` is `$null` (e.g., newly created or unprovisioned accounts) and marks them as `\"Never\"` in the CSV. |\n| **Date Format** | Outputs dates in ISO 8601 UTC format (`yyyy-MM-ddTHH:mm:ssZ`) for compatibility with reporting tools, Excel, and audit systems. |\n\nLet me know if you need this adapted for conditional access remediation, auto-remediation workflows, or hybrid Azure AD join environments!",
+      "tokens_per_second": 51.49,
+      "wall_seconds": 111.16282144399884,
+      "eval_count": 5708,
+      "scores": {
+        "accuracy": 4,
+        "completeness": 7,
+        "format": 8,
+        "hallucination_risk": 5,
+        "overall": 4,
+        "issues": [
+          "lastSignInDateTime is not a top-level user property; it lives under the signInActivity object, so it must be requested via -Property 'signInActivity' and accessed as $_.SignInActivity.LastSignInDateTime. As written, the script returns null for every user and mislabels everyone as 'Never'.",
+          "Querying signInActivity requires the AuditLog.Read.All scope; the script only requests User.Read.All, so the data needed would not be returned.",
+          "The suggested server-side -Filter on 'lastSignInDateTime lt ...' is invalid \u2014 it would need 'signInActivity/lastSignInDateTime' plus advanced query parameters (ConsistencyLevel eventual and $count), which are not used.",
+          "Import-Module Microsoft.Graph loads the entire meta-module (slow); importing Microsoft.Graph.Users would be more appropriate."
+        ],
+        "strengths": [
+          "Clean, well-structured, paste-ready script with parameters, comment-based help, and proper try/catch/finally cleanup",
+          "Correctly handles pagination with -All, null sign-in dates, UTF-8 CSV export, and the requested column names",
+          "Good supplementary notes on permissions and the 10k object query limit"
+        ],
+        "verdict": "Well-formatted and structurally complete, but a core correctness flaw \u2014 using a non-existent top-level lastSignInDateTime property instead of signInActivity and omitting the required AuditLog.Read.All scope \u2014 means the script would not actually return sign-in data without significant edits."
+      }
+    }
+  ],
+  "source": "/home/ai/benchmark-results/graph-shootout-raw-20260625-223634.jsonl",
+  "timestamp": "20260625-230501"
+}
