@@ -14,12 +14,21 @@ validated real-world deployment — every step has been run on this exact hardwa
 
 ### Memory Architecture (Read This First)
 
-The 128GB pool is split at the BIOS level:
-- **GPU UMA (VRAM):** 96GB (set in BIOS)
-- **CPU system RAM:** ~31GB (remainder)
+The 128GB pool is split at the BIOS level by the **UMA Frame Buffer Size** setting. The frame
+buffer is a dedicated GPU reservation — but with `HSA_XNACK=1` enabled in the Ollama service,
+the GPU can demand-page **beyond** the frame buffer into the full 128GB pool when it needs more.
 
-This means if a model falls back to CPU, it only has 31GB. A 35B model alone is 21GB —
-add a 32K KV cache and you OOM instantly. **GPU inference is not optional on this machine.**
+**Set UMA Frame Buffer to 16GB (not the BIOS maximum).** A large reservation (e.g. 96GB)
+leaves only ~31GB for the OS and Ollama's scheduler — the GPU hits a 30GB ceiling and crashes
+under concurrent model load. A 16GB reservation gives the OS and Ollama ~112GB headroom, and
+the GPU still accesses the full pool on demand via XNACK page faults.
+
+- **GPU UMA (dedicated frame buffer):** 16GB (set in BIOS)
+- **CPU system RAM / Ollama scheduler pool:** ~112GB
+- **GPU demand-page ceiling:** 128GB (full pool, via XNACK)
+
+**GPU inference is not optional on this machine** — confirm `ollama ps` shows GPU before
+loading large models.
 
 ## Reference
 
@@ -37,8 +46,10 @@ Access BIOS at startup via **ESC** or **DEL**. Apply these settings before insta
 
 ### GPU Memory
 - Navigate to **Integrated Graphics** or **AMD CBS**
-- Set **UMA Frame Buffer Size** to **96GB** (or highest available)
-- This pre-allocates unified memory to the GPU pool for inference
+- Set **UMA Frame Buffer Size** to **16GB**
+- Do NOT set this to 96GB or the maximum — a large reservation caps Ollama's scheduler pool
+  to ~31GB and causes GPU crashes under concurrent model load. With `HSA_XNACK=1` the GPU
+  demand-pages the full 128GB pool beyond the 16GB frame buffer.
 
 ### IOMMU
 - Set **IOMMU** to **Disabled** — provides ~6% memory read improvement
@@ -575,7 +586,8 @@ cat ~/.ssh/authorized_keys  # should show your Mac's public key
 | amdgpu missing after reboot | `amdgpu-dkms` blacklist surviving purge | `sudo dpkg --purge amdgpu-dkms && sudo rm -f /etc/modprobe.d/blacklist-amdgpu.conf && sudo update-initramfs -u && sudo reboot` — must use `--purge` not `--remove` |
 | ROCm unspecified launch failure on long generation | XNACK disabled — GPU crashes on page fault | Add `Environment="HSA_XNACK=1"` to ollama override — see Step 6 |
 | `amdxdna` SVA bind errors flooding kernel log, system unstable at idle | NPU driver conflicts with amdgpu for SVM memory | Blacklist amdxdna — see Step 4 |
-| OOM kill during model load | Model fell back to CPU — only 31GB available to CPU | Confirm GPU inference is working before loading large models |
+| OOM kill during model load | Model fell back to CPU — only ~31GB available if UMA frame buffer is set too high | Set UMA Frame Buffer to 16GB in BIOS (not 96GB) — see Step 0 |
+| GPU crash / MES unrecoverable state under concurrent load | UMA Frame Buffer set too high (e.g. 96GB), leaving Ollama's scheduler only ~30GB headroom | Set UMA Frame Buffer to 16GB in BIOS. XNACK=1 lets GPU demand-page the full 128GB pool |
 | `VRAM% 0%` in rocm-smi | Expected on unified memory — no discrete VRAM to measure | Normal — use `GPU%` column as the utilization indicator |
 | `mllama` architecture error on llama3.2-vision | ROCm does not support mllama | Skip — use qwen3.6:35b for vision tasks |
 | `docker-compose-plugin` not found | Not available on Ubuntu 24.04 | Use `docker-compose` (standalone) |
@@ -598,7 +610,7 @@ cat ~/.ssh/authorized_keys  # should show your Mac's public key
 
 ## Done Criteria
 
-- [ ] BIOS configured — Secure Boot off, UMA 96GB, IOMMU off, 85W
+- [ ] BIOS configured — Secure Boot off, UMA **16GB**, IOMMU off, 85W
 - [ ] Kernel 6.16.9 confirmed via `uname -r`
 - [ ] LVM expanded — `df -h /` shows ~2TB
 - [ ] GPU memory 128GB confirmed via `mem_info_gtt_total`
